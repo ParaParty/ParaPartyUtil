@@ -12,7 +12,6 @@
         <Description>ParaParty Util Kotlinize</Description>
 
         <RootNamespace>Paraparty</RootNamespace>
-
         <AssemblyName>Paraparty.Kotlinize</AssemblyName>
 
 <!--        <Nullable>enable</Nullable>-->

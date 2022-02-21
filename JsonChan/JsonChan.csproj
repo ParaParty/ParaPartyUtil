@@ -7,6 +7,13 @@
         <RootNamespace>Paraparty</RootNamespace>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <AssemblyName>Paraparty.JsonChan</AssemblyName>
+
+        <Authors>ParaParty</Authors>
+        <Product>ParaParty Util JsonChan</Product>
+        <PackageProjectUrl>https://robot.binkic.com</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/ParaParty/ParaPartyUtil/</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <Description>ParaParty Util Kotlinize</Description>
     </PropertyGroup>
 
     <ItemGroup>

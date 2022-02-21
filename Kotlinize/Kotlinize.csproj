@@ -11,7 +11,7 @@
         <RepositoryType>git</RepositoryType>
         <Description>ParaParty Util Kotlinize</Description>
 
-        <RootNamespace>Paraparty.Kotlinize</RootNamespace>
+        <RootNamespace>Paraparty</RootNamespace>
 
 <!--        <Nullable>enable</Nullable>-->
 <!--        <WarningsAsErrors>Nullable</WarningsAsErrors>-->

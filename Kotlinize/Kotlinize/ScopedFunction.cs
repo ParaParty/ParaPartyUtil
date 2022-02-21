@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Runtime.CompilerServices;
 
-namespace Paraparty.Kotlinize.Extension
+namespace Paraparty.Kotlinize
 {
-    public static class Kotlinize
+    public static class ScopedFunction
     {
         /// <summary>
         /// Calls the specified function <see cref="block">block</see> and returns its result.<br/>

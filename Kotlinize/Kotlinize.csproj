@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>netstandard1.2</TargetFramework>
+<!--        <ImplicitUsings>enable</ImplicitUsings>-->
+
+        <Authors>ParaParty</Authors>
+        <Product>ParaParty Util Kotlinize</Product>
+        <PackageProjectUrl>https://robot.binkic.com</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/ParaParty/ParaPartyUtil/</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <Description>ParaParty Util Kotlinize</Description>
+
+        <RootNamespace>Paraparty.Kotlinize</RootNamespace>
+
+<!--        <Nullable>enable</Nullable>-->
+<!--        <WarningsAsErrors>Nullable</WarningsAsErrors>-->
+    </PropertyGroup>
+
+</Project>

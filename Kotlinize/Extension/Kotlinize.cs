@@ -16,7 +16,7 @@ namespace Paraparty.Kotlinize.Extension
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static TR Run<TR>(Func<TR> block)
             => block();
-        
+
         /// <summary>
         /// Calls the specified function <see cref="block">block</see> with <c>this</c> value as its argument and returns its result.<br/>
         /// 
@@ -31,6 +31,17 @@ namespace Paraparty.Kotlinize.Extension
         public static TR Let<T, TR>(this T self, Func<T, TR> block)
             => block(self);
 
+        /// <summary>
+        /// Calls the specified function <see cref="block">block</see> with <c>this</c> value as its argument and returns its result.<br/>
+        /// 
+        /// For detailed usage information see the documentation for <a href="https://kotlinlang.org/docs/reference/scope-functions.html#let">scope functions</a><br/>
+        /// </summary>
+        /// <param name="self"></param>
+        /// <param name="block"></param>
+        /// <typeparam name="T"></typeparam>
+        /// <returns></returns>
+        public static void Let<T>(this T self, Action<T> block)
+            => block(self);
 
         /// <summary>
         /// Calls the specified function <see cref="block">block</see> with <c>this</c> value as its argument and returns <c>this</c> value.<br/>

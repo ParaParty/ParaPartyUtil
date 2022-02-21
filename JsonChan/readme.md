@@ -5,7 +5,7 @@ It's very simple to use as only need to code one line to parse the JSON.
 
 **It's especially suited for some non-performance sensitivity scenes.**
 
-## Feature
+## Features
 
 1. JSON parser.
 

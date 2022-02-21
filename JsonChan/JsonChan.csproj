@@ -4,7 +4,7 @@
         <TargetFramework>netstandard1.2</TargetFramework>
         <LangVersion>7.2</LangVersion>
         <Nullable>disable</Nullable>
-        <RootNamespace>Paraparty.JsonChan</RootNamespace>
+        <RootNamespace>Paraparty</RootNamespace>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <AssemblyName>Paraparty.JsonChan</AssemblyName>
     </PropertyGroup>

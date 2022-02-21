@@ -2,7 +2,11 @@
 
     <PropertyGroup>
         <TargetFramework>netstandard1.2</TargetFramework>
-<!--        <ImplicitUsings>enable</ImplicitUsings>-->
+        <LangVersion>7.2</LangVersion>
+        <Nullable>disable</Nullable>
+        <RootNamespace>Paraparty</RootNamespace>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <AssemblyName>Paraparty.JsonChan</AssemblyName>
 
         <Authors>ParaParty</Authors>
         <Product>ParaParty Util Kotlinize</Product>
@@ -13,9 +17,6 @@
 
         <RootNamespace>Paraparty</RootNamespace>
         <AssemblyName>Paraparty.Kotlinize</AssemblyName>
-
-<!--        <Nullable>enable</Nullable>-->
-<!--        <WarningsAsErrors>Nullable</WarningsAsErrors>-->
     </PropertyGroup>
 
 </Project>

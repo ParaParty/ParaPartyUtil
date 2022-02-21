@@ -4,6 +4,9 @@ using System.Runtime.CompilerServices;
 
 namespace Paraparty.Kotlinize
 {
+    /// <summary>
+    /// Collections Utils
+    /// </summary>
     public static class Collections
     {
         /// <summary>

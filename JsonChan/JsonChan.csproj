@@ -13,11 +13,13 @@
         <PackageProjectUrl>https://robot.binkic.com</PackageProjectUrl>
         <RepositoryUrl>https://github.com/ParaParty/ParaPartyUtil/</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <Description>ParaParty Util Kotlinize</Description>
+        <Description>ParaParty Util JsonChan</Description>
+
+        <RootNamespace>Paraparty</RootNamespace>
+        <AssemblyName>Paraparty.JsonChan</AssemblyName>
     </PropertyGroup>
 
     <ItemGroup>
-      <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
+        <PackageReference Include="Microsoft.CSharp" Version="4.7.0"/>
     </ItemGroup>
-
 </Project>

@@ -13,6 +13,8 @@
 
         <RootNamespace>Paraparty.Kotlinize</RootNamespace>
 
+        <AssemblyName>Paraparty.Kotlinize</AssemblyName>
+
 <!--        <Nullable>enable</Nullable>-->
 <!--        <WarningsAsErrors>Nullable</WarningsAsErrors>-->
     </PropertyGroup>

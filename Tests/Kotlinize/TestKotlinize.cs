@@ -2,11 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
-using Paraparty.Kotlinize.Extension;
+using Paraparty.Kotlinize;
 
-namespace Paraparty.Tests;
+namespace Paraparty.Tests.Kotlinize;
 
-public class TestKotlinize
+public class TestScopedFunction
 {
     [Test]
     public void TestAlso()

@@ -1,10 +1,17 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kotlinize", "Kotlinize\Kotlinize.csproj", "{C20484EC-A7F1-47F8-917E-A58DC5580CA9}"
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.32112.339
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Kotlinize", "Kotlinize\Kotlinize.csproj", "{C20484EC-A7F1-47F8-917E-A58DC5580CA9}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tests", "Tests\Tests.csproj", "{15A002E1-0266-47BB-B306-258F51A8775C}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Tests", "Tests\Tests.csproj", "{15A002E1-0266-47BB-B306-258F51A8775C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JsonChan", "JsonChan\JsonChan.csproj", "{0CB0E879-34A7-4B04-ABB1-08522326E378}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "JsonChan", "JsonChan\JsonChan.csproj", "{0CB0E879-34A7-4B04-ABB1-08522326E378}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ChiseledQuartz", "ChiseledQuartz\ChiseledQuartz.csproj", "{B1EA7EA9-71E8-456C-905A-2CB1FA61AD90}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Demo.ASP.NET", "Demo.ASP.NET\Demo.ASP.NET.csproj", "{0FFE8DF7-B246-4A00-AA60-38829083BFB4}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -24,5 +31,19 @@ Global
 		{0CB0E879-34A7-4B04-ABB1-08522326E378}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0CB0E879-34A7-4B04-ABB1-08522326E378}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{0CB0E879-34A7-4B04-ABB1-08522326E378}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B1EA7EA9-71E8-456C-905A-2CB1FA61AD90}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B1EA7EA9-71E8-456C-905A-2CB1FA61AD90}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B1EA7EA9-71E8-456C-905A-2CB1FA61AD90}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B1EA7EA9-71E8-456C-905A-2CB1FA61AD90}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0FFE8DF7-B246-4A00-AA60-38829083BFB4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0FFE8DF7-B246-4A00-AA60-38829083BFB4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0FFE8DF7-B246-4A00-AA60-38829083BFB4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0FFE8DF7-B246-4A00-AA60-38829083BFB4}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {87B7BA7D-4D74-4F21-8425-2222B3108315}
 	EndGlobalSection
 EndGlobal

@@ -1,4 +1,8 @@
 ﻿<wpf:ResourceDictionary xml:space="preserve" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:s="clr-namespace:System;assembly=mscorlib" xmlns:ss="urn:shemas-jetbrains-com:settings-storage-xaml" xmlns:wpf="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
 	<s:String x:Key="/Default/Environment/UnitTesting/UnitTestSessionStore/Sessions/=46bc3af4_002Dd0ae_002D42bf_002Db5af_002D5a24a008628b/@EntryIndexedValue">&lt;SessionState ContinuousTestingMode="0" IsActive="True" Name="IsPrime_InputIs1_ReturnFalse" xmlns="urn:schemas-jetbrains-com:jetbrains-ut-session"&gt;&#xD;
-  &lt;Project Location="F:\File\src\ParaPartyUtil\Tests" Presentation="&amp;lt;Tests&amp;gt;" /&gt;&#xD;
+  &lt;TestAncestor&gt;&#xD;
+    &lt;TestId&gt;MSTest::16D26EE2-4A65-4189-AD77-38E73A038454::net8.0::Paraparty.Tests.Kotlinize.CollectionExtension&lt;/TestId&gt;&#xD;
+    &lt;TestId&gt;MSTest::16D26EE2-4A65-4189-AD77-38E73A038454::net8.0::Paraparty.Tests.Kotlinize.TestScopedFunction&lt;/TestId&gt;&#xD;
+    &lt;TestId&gt;MSTest::16D26EE2-4A65-4189-AD77-38E73A038454::net8.0::Paraparty.Tests.UnityNative.TestStringExtension&lt;/TestId&gt;&#xD;
+  &lt;/TestAncestor&gt;&#xD;
 &lt;/SessionState&gt;</s:String></wpf:ResourceDictionary>

@@ -9,7 +9,7 @@
 
         <Authors>ParaParty</Authors>
         <Product>ParaParty ASP.NET Quartz.NET Integration</Product>
-        <PackageProjectUrl>https://robot.binkic.com</PackageProjectUrl>
+        <PackageProjectUrl>https://pkg.para.party/ParaPartyUtil</PackageProjectUrl>
         <RepositoryUrl>https://github.com/ParaParty/ParaPartyUtil/</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <Description>ParaParty ASP.NET Quartz.NET Integration</Description>
@@ -25,10 +25,10 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.AspNetCore.Hosting.Abstractions" Version="2.2.0" />
-        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="6.0.0" />
-        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="6.0.0" />
-        <PackageReference Include="Microsoft.Extensions.Hosting" Version="6.0.0" />
-        <PackageReference Include="Quartz" Version="3.3.3" />
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+        <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
+        <PackageReference Include="Quartz" Version="3.11.0" />
     </ItemGroup>
 
 </Project>

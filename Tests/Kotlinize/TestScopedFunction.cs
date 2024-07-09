@@ -1,45 +1,31 @@
-﻿using NUnit.Framework;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Paraparty.Kotlinize;
 
 namespace Paraparty.Tests.Kotlinize;
 
-public class CollectionExtension
+[TestClass]
+public class TestScopedFunction
 {
-    [Test]
-    public void CreateList()
+    [TestMethod]
+    public void TestAlso()
     {
-        var t = Collections.ListOf(1, 2.2);
-        Assert.AreEqual(1, t[0]);
-        Assert.AreEqual(2.2, t[1]);
+        var numbers = new List<string> { "one", "two", "three" };
+        numbers
+            .Also(it => Console.WriteLine($"The list elements before adding new one: {string.Join(',', it)}"))
+            .Add("four");
+        // pass
     }
 
-    [Test]
-    public void CreatePair()
+    [TestMethod]
+    public void TestLet()
     {
-        var t = "ΩΩPARTS".To("かめりあ");
-        Assert.AreEqual("ΩΩPARTS", t.Key);
-        Assert.AreEqual("かめりあ", t.Value);
-    }
-    
-    [Test]
-    public void CreateMap()
-    {
-        var t = Collections.MapOf(
-            "ΩΩPARTS".To("かめりあ"),
-                        "ANiMA".To("Xi")
-        );
-        Assert.AreEqual("かめりあ", t["ΩΩPARTS"]);
-        Assert.AreEqual("Xi", t["ANiMA"]);
-    }
-    
-    [Test]
-    public void CreateSet()
-    {
-        var t = Collections.SetOf(
-            1, 1, 4, 5, 1, 4
-        );
-        Assert.AreEqual(3,t.Count);
-        Assert.True(t.Contains(1));
-        Assert.False(t.Contains(2));
+        var numbers = new[] { "one", "two", "three", "four", "five" };
+        numbers.Select(s => s.Length)
+            .Where(l => l > 3)
+            .Let(it => Console.WriteLine(string.Join(",", it)));
+        // pass
     }
 }

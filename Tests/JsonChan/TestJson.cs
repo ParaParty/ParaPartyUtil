@@ -1,11 +1,12 @@
-﻿using NUnit.Framework;
+﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Paraparty.JsonChan;
 
-namespace Paraparty.Tests;
+namespace Paraparty.Tests.JsonChan;
 
+[TestClass]
 public class TestJson
 {
-    [Test]
+    [TestMethod]
     public void TestJson1()
     {
         var json = Json.Parse(
@@ -21,10 +22,9 @@ public class TestJson
         Assert.AreEqual(json.apple, 1);
         Assert.AreEqual(json.banana, 2);
         Assert.AreEqual(json.coco, 3);
-        Assert.Pass();
     }
 
-    [Test]
+    [TestMethod]
     public void TestJson2()
     {
         var json = Json.Parse(
@@ -40,10 +40,9 @@ public class TestJson
         Assert.AreEqual(json.str, "this is a string");
         Assert.AreEqual(json.number, 3.1415926);
         Assert.AreEqual(json.boolean, true);
-        Assert.Pass();
     }
 
-    [Test]
+    [TestMethod]
     public void TestJson3()
     {
         var json = Json.Parse(
@@ -74,10 +73,9 @@ public class TestJson
         Assert.AreEqual(json.j_array[0], "apple");
         Assert.AreEqual(json.j_array[1], "banana");
         Assert.AreEqual(json.j_array[2], "coco");
-        Assert.Pass();
     }
 
-    [Test]
+    [TestMethod]
     public void TestJson4()
     {
         var json = Json.Parse(
@@ -92,10 +90,9 @@ public class TestJson
         Assert.AreEqual(json[0], "apple");
         Assert.AreEqual(json[1], "banana");
         Assert.AreEqual(json[2], "coco");
-        Assert.Pass();
     }
 
-    [Test]
+    [TestMethod]
     public void TestJson5()
     {
         var json = Json.Parse(
@@ -115,6 +112,5 @@ public class TestJson
         Assert.AreEqual(json[0], "apple");
         Assert.AreEqual(json[1], "banana");
         Assert.AreEqual(json[2], "coconut");
-        Assert.Pass();
     }
 }

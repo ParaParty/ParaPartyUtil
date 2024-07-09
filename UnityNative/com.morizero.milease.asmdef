@@ -1,0 +1,14 @@
+{
+    "name": "party.para.util.unitynative",
+    "rootNamespace": "ParaPartyUtil.UnityNative",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -8,7 +8,7 @@
 
         <Authors>ParaParty</Authors>
         <Product>ParaParty Util Kotlinize</Product>
-        <PackageProjectUrl>https://robot.binkic.com</PackageProjectUrl>
+        <PackageProjectUrl>https://pkg.para.party/ParaPartyUtil</PackageProjectUrl>
         <RepositoryUrl>https://github.com/ParaParty/ParaPartyUtil/</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <Description>ParaParty Util Kotlinize</Description>

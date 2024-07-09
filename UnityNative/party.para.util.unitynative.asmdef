@@ -1,6 +1,6 @@
 {
     "name": "party.para.util.unitynative",
-    "rootNamespace": "ParaPartyUtil.UnityNative",
+    "rootNamespace": "Paraparty.UnityNative",
     "references": [],
     "includePlatforms": [],
     "excludePlatforms": [],

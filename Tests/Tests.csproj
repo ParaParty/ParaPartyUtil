@@ -12,6 +12,7 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\Colors\Colors.csproj"/>
         <ProjectReference Include="..\JsonChan\JsonChan.csproj"/>
         <ProjectReference Include="..\UnityNative\UnityNative.csproj"/>
         <ProjectReference Include="..\Kotlinize\Kotlinize.csproj"/>

@@ -7,14 +7,14 @@
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
 
         <Authors>ParaParty</Authors>
-        <Product>ParaParty Util Colors</Product>
+        <Product>ParaParty Util Strings</Product>
         <PackageProjectUrl>https://pkg.para.party/ParaPartyUtil</PackageProjectUrl>
         <RepositoryUrl>https://github.com/ParaParty/ParaPartyUtil/</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <Description>ParaParty Util Colors</Description>
+        <Description>ParaParty Util Strings</Description>
 
         <RootNamespace>Paraparty</RootNamespace>
-        <AssemblyName>Paraparty.Colors</AssemblyName>
+        <AssemblyName>Paraparty.Strings</AssemblyName>
 
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <Version>3.0.0</Version>

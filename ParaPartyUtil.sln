@@ -17,6 +17,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnityNative", "UnityNative\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Colors", "Colors\Colors.csproj", "{55313838-5683-4135-8739-BA0D4D7181E9}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Strings", "Strings\Strings.csproj", "{47056F80-400E-49E4-A7C9-0C0E77852736}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -51,6 +53,10 @@ Global
 		{55313838-5683-4135-8739-BA0D4D7181E9}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{55313838-5683-4135-8739-BA0D4D7181E9}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{55313838-5683-4135-8739-BA0D4D7181E9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{47056F80-400E-49E4-A7C9-0C0E77852736}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{47056F80-400E-49E4-A7C9-0C0E77852736}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{47056F80-400E-49E4-A7C9-0C0E77852736}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{47056F80-400E-49E4-A7C9-0C0E77852736}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

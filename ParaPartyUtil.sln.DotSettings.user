@@ -5,5 +5,6 @@
     &lt;TestId&gt;MSTest::16D26EE2-4A65-4189-AD77-38E73A038454::net8.0::Paraparty.Tests.Kotlinize.TestScopedFunction&lt;/TestId&gt;&#xD;
     &lt;TestId&gt;MSTest::16D26EE2-4A65-4189-AD77-38E73A038454::net8.0::Paraparty.Tests.UnityNative.TestStringExtension&lt;/TestId&gt;&#xD;
     &lt;TestId&gt;MSTest::16D26EE2-4A65-4189-AD77-38E73A038454::net8.0::Paraparty.Tests.Colors.TestColors&lt;/TestId&gt;&#xD;
+    &lt;TestId&gt;MSTest::16D26EE2-4A65-4189-AD77-38E73A038454::net8.0::Paraparty.Tests.Strings.NamingStrategyUtilTest&lt;/TestId&gt;&#xD;
   &lt;/TestAncestor&gt;&#xD;
 &lt;/SessionState&gt;</s:String></wpf:ResourceDictionary>

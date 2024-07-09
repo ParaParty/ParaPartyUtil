@@ -1,0 +1,14 @@
+{
+    "name": "party.para.util.kotlinize",
+    "rootNamespace": "Paraparty.Kotlinize",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,0 +1,9 @@
+{
+    "name": "party.para.util.kotlinize",
+    "author": "ParaParty",
+    "displayName": "ParaPartyUtil.Kotlinize",
+    "version": "3.0.0",
+    "unity": "2020.1",
+    "description": "",
+    "dependencies": {}
+}

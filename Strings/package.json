@@ -1,9 +1,9 @@
 {
     "name": "party.para.util.strings",
     "author": "ParaParty",
-    "displayName": "ParaPartyUtil.strings",
+    "displayName": "ParaPartyUtil.Strings",
     "version": "3.0.0",
-    "unity": "2022.3",
+    "unity": "2020.1",
     "description": "",
     "dependencies": {}
 }

@@ -78,7 +78,7 @@ namespace Paraparty.Colors
 #if !UNITY_2022_1_OR_NEWER
             return Color.FromArgb(alpha, red, green, blue);
 #else
-            return new Color(alpha * 1f / 255f, red * 1f / 255f, green * 1f / 255f, blue * 1f / 255f);
+            return new Color(red * 1f / 255f, green * 1f / 255f, blue * 1f / 255f, alpha * 1f / 255f);
 #endif
         }
 
@@ -92,7 +92,7 @@ namespace Paraparty.Colors
                 (int)(blue * 255)
             );
 #else
-            return new Color(alpha, red, green, blue);
+            return new Color(red, green, blue, alpha);
 #endif
         }
     }

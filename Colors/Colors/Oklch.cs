@@ -66,7 +66,7 @@ namespace Paraparty.Colors
             return FromOklab(oklab);
         }
 
-        private static Oklch FromOklab(Oklab oklab)
+        public static Oklch FromOklab(Oklab oklab)
         {
             var l = oklab.L;
             var a = oklab.A;

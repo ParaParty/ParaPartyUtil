@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Globalization;
-#if UNITY_2022_1_OR_NEWER
+#if UNITY_2020_1_OR_NEWER
 using UnityEngine;
 #endif
 

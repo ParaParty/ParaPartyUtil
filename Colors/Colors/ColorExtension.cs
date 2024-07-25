@@ -1,5 +1,5 @@
 ﻿using System.Text;
-#if !UNITY_2022_1_OR_NEWER
+#if !UNITY_2020_1_OR_NEWER
 using System.Drawing;
 #else
 using UnityEngine;
@@ -11,7 +11,7 @@ namespace Paraparty.Colors
     {
         public static string SerializeColor(this Color color)
         {
-#if !UNITY_2022_1_OR_NEWER
+#if !UNITY_2020_1_OR_NEWER
             int r = color.R;
             int g = color.G;
             int b = color.B;

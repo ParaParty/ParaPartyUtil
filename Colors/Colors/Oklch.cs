@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Linq;
-#if !UNITY_2022_1_OR_NEWER
+#if !UNITY_2020_1_OR_NEWER
 using System.Drawing;
 
 #else
@@ -46,7 +46,7 @@ namespace Paraparty.Colors
 
         public static Oklch FromColor(Color color)
         {
-#if !UNITY_2022_1_OR_NEWER
+#if !UNITY_2020_1_OR_NEWER
             double r = (double)color.R / 255.0;
             double g = (double)color.G / 255.0;
             double b = (double)color.B / 255.0;

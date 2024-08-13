@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 
-namespace Milestro.Native
+namespace Paraparty.UnityNative
 {
     public unsafe class UnmanagedStringArray : IDisposable
     {

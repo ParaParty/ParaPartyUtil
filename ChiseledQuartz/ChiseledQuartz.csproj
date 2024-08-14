@@ -18,6 +18,7 @@
         <AssemblyName>Paraparty.ChiseledQuartz</AssemblyName>
 
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageId>Paraparty.ChiseledQuartz</PackageId>
         <Version>3.0.0</Version>
         <AssemblyVersion>3.0.0.0</AssemblyVersion>
         <FileVersion>3.0.0.0</FileVersion>

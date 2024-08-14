@@ -17,6 +17,7 @@
         <AssemblyName>Paraparty.Strings</AssemblyName>
 
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageId>Paraparty.Strings</PackageId>
         <Version>3.0.0</Version>
         <AssemblyVersion>3.0.0.0</AssemblyVersion>
         <FileVersion>3.0.0.0</FileVersion>

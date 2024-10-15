@@ -1,8 +1,7 @@
+using System;
+
 namespace Paraparty.UnityNative.Base
 {
-    using System;
-
-
     /// <summary>
     /// DisposableObject + INativePtrHolder
     /// </summary>
@@ -71,5 +70,4 @@ namespace Paraparty.UnityNative.Base
             }
         }
     }
-
 }

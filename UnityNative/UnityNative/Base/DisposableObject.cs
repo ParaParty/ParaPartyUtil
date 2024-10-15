@@ -1,10 +1,9 @@
+using System;
+using System.Runtime.InteropServices;
+using System.Threading;
+
 namespace Paraparty.UnityNative.Base
 {
-    using System;
-    using System.Runtime.InteropServices;
-    using System.Threading;
-
-
     /// <summary>
     /// Represents a class which manages its own memory. 
     /// </summary>

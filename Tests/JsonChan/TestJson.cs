@@ -19,9 +19,9 @@ public class TestJson
 ");
 
         // Asserts
-        Assert.AreEqual(json.apple, 1);
-        Assert.AreEqual(json.banana, 2);
-        Assert.AreEqual(json.coco, 3);
+        Assert.AreEqual<ulong>(json.apple, 1);
+        Assert.AreEqual<ulong>(json.banana, 2);
+        Assert.AreEqual<ulong>(json.coco, 3);
     }
 
     [TestMethod]
@@ -68,7 +68,7 @@ public class TestJson
         Assert.AreEqual(json.number, 3.1415926);
         Assert.AreEqual(json.boolean, true);
         Assert.AreEqual(json.j_obj.str, "string \\in object");
-        Assert.AreEqual(json.j_obj.number, 1000000000);
+        Assert.AreEqual<ulong>(json.j_obj.number, 1000000000);
         Assert.AreEqual(json.j_obj.boolean, false);
         Assert.AreEqual(json.j_array[0], "apple");
         Assert.AreEqual(json.j_array[1], "banana");

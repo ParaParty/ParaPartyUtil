@@ -85,14 +85,14 @@ namespace Paraparty.Colors
 
         internal static Oklch ParseOklch(string ssrc)
         {
-            var src = ssrc[OklchPrefixLength ..^OklchSuffixLength];
+            var src = ssrc.Substring(OklchPrefixLength, ssrc.Length - OklchPrefixLength - OklchSuffixLength);
             if (string.IsNullOrWhiteSpace(src))
             {
                 Tools.LogError($"empty Oklch: {ssrc}");
                 return White;
             }
 
-            var colorAlpha = src.Split("/");
+            var colorAlpha = src.Split('/');
             if (colorAlpha.Length > 2)
             {
                 Tools.LogError($"multi slash: {ssrc}");
@@ -115,10 +115,10 @@ namespace Paraparty.Colors
                     return White;
                 }
 
-                opacity = Math.Clamp(opacity, 0.0, 1.0);
+                opacity = Backport.MathClamp(opacity, 0.0, 1.0);
             }
 
-            var lch = colorAlpha[0].Split(" ").Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
+            var lch = colorAlpha[0].Split(' ').Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
             if (lch.Length != 3)
             {
                 Tools.LogError($"lch elements mismatched: {ssrc}");
@@ -145,7 +145,7 @@ namespace Paraparty.Colors
                 return White;
             }
 
-            l = Math.Clamp(l, 0.0, 1.0);
+            l = Backport.MathClamp(l, 0.0, 1.0);
 
             if (Tools.TryParsePercentage(cStr, out c))
             {

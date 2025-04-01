@@ -101,9 +101,9 @@ namespace Paraparty.Colors
             double s = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b;
 
             // Apply cubic root
-            double l_ = Math.Cbrt(l);
-            double m_ = Math.Cbrt(m);
-            double s_ = Math.Cbrt(s);
+            double l_ = Backport.MathCbrt(l);
+            double m_ = Backport.MathCbrt(m);
+            double s_ = Backport.MathCbrt(s);
 
             // Final calculation
             double lCube = 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_;
@@ -145,14 +145,14 @@ namespace Paraparty.Colors
 
         public static Oklab ParseOklch(string ssrc)
         {
-            var src = ssrc[OklabPrefixLength ..^OklabSuffixLength];
+            var src = ssrc.Substring(OklabPrefixLength, ssrc.Length - OklabPrefixLength - OklabSuffixLength);
             if (string.IsNullOrWhiteSpace(src))
             {
                 Tools.LogError($"empty Oklch: {ssrc}");
                 return White;
             }
 
-            var colorAlpha = src.Split("/");
+            var colorAlpha = src.Split('/');
             if (colorAlpha.Length > 2)
             {
                 Tools.LogError($"multi slash: {ssrc}");
@@ -175,10 +175,10 @@ namespace Paraparty.Colors
                     return White;
                 }
 
-                opacity = Math.Clamp(opacity, 0.0, 1.0);
+                opacity = Backport.MathClamp(opacity, 0.0, 1.0);
             }
 
-            var lch = colorAlpha[0].Split(" ").Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
+            var lch = colorAlpha[0].Split(' ').Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
             if (lch.Length != 3)
             {
                 Tools.LogError($"lch elements mismatched: {ssrc}");
@@ -219,7 +219,7 @@ namespace Paraparty.Colors
                 return White;
             }
 
-            a = Math.Clamp(a, -0.4, 0.4);
+            a = Backport.MathClamp(a, -0.4, 0.4);
 
 
             if (Tools.TryParsePercentage(bStr, out b))
@@ -235,7 +235,7 @@ namespace Paraparty.Colors
                 return White;
             }
 
-            b = Math.Clamp(b, -0.4, 0.4);
+            b = Backport.MathClamp(b, -0.4, 0.4);
 
             return new Oklab(l, a, b, opacity);
         }

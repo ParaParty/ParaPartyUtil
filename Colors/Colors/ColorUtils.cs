@@ -30,7 +30,7 @@ namespace Paraparty.Colors
 
             if (src.StartsWith("#"))
             {
-                src = src[1..];
+                src = src.Substring(1);
                 if (src.Length == 3 &&
                     Tools.TryParseHexToUint($"{src[0]}{src[0]}{src[1]}{src[1]}{src[2]}{src[2]}FF", out uintColor))
                 {

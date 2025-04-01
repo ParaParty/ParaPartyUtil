@@ -37,12 +37,12 @@ namespace Paraparty.Colors
         internal static bool TryParsePercentage(string s, out double result)
         {
             result = 0;
-            if (!s.EndsWith('%'))
+            if (!s.EndsWith("%"))
             {
                 return false;
             }
 
-            s = s[..^1];
+            s = s.Substring(0, s.Length - 1);
             var ret = double.TryParse(s, NumberStyles.Any, ParseCulture, out result);
             if (!ret) return ret;
 
@@ -58,7 +58,7 @@ namespace Paraparty.Colors
 
             if (s.EndsWith("deg"))
             {
-                number = s[..^3].Trim(); // Remove the last three characters "deg"
+                number = s.Substring(0, s.Length - 3).Trim(); // Remove the last three characters "deg"
                 if (TryParseDouble(number, out value))
                 {
                     degrees = value; // Already in degrees
@@ -67,7 +67,7 @@ namespace Paraparty.Colors
             }
             else if (s.EndsWith("grad"))
             {
-                number = s[..^4].Trim(); // Remove the last four characters "grad"
+                number = s.Substring(0, s.Length - 4).Trim(); // Remove the last four characters "grad"
                 if (TryParseDouble(number, out value))
                 {
                     degrees = value * (360.0 / 400.0); // Convert gradians to degrees
@@ -76,7 +76,7 @@ namespace Paraparty.Colors
             }
             else if (s.EndsWith("rad"))
             {
-                number = s[..^3].Trim(); // Remove the last three characters "rad"
+                number = s.Substring(0, s.Length - 3).Trim(); // Remove the last three characters "rad"
                 if (TryParseDouble(number, out value))
                 {
                     degrees = value * (180.0 / Math.PI); // Convert radians to degrees
@@ -85,7 +85,7 @@ namespace Paraparty.Colors
             }
             else if (s.EndsWith("turn"))
             {
-                number = s[..^4].Trim(); // Remove the last four characters "turn"
+                number = s.Substring(0, s.Length - 4).Trim(); // Remove the last four characters "turn"
                 if (TryParseDouble(number, out value))
                 {
                     degrees = value * 360.0; // Convert turns to degrees

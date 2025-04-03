@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Colors", "Colors\Colors.csp
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Strings", "Strings\Strings.csproj", "{47056F80-400E-49E4-A7C9-0C0E77852736}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnityPolyfill", "UnityPolyfill\UnityPolyfill.csproj", "{F7ABE4C2-22DA-4D69-85FE-1E58795BD9A3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -57,6 +59,10 @@ Global
 		{47056F80-400E-49E4-A7C9-0C0E77852736}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{47056F80-400E-49E4-A7C9-0C0E77852736}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{47056F80-400E-49E4-A7C9-0C0E77852736}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F7ABE4C2-22DA-4D69-85FE-1E58795BD9A3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F7ABE4C2-22DA-4D69-85FE-1E58795BD9A3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F7ABE4C2-22DA-4D69-85FE-1E58795BD9A3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F7ABE4C2-22DA-4D69-85FE-1E58795BD9A3}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

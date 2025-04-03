@@ -1,9 +1,7 @@
 {
-    "name": "party.para.util.colors",
-    "rootNamespace": "Paraparty.Colors",
-    "references": [
-        "party.para.util.unitypolyfill"
-    ],
+    "name": "party.para.util.unitypolyfill",
+    "rootNamespace": "Paraparty.UnityPolyfill",
+    "references": [],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

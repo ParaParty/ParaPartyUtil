@@ -2,9 +2,11 @@
 using System.Linq;
 #if !UNITY_2020_1_OR_NEWER
 using System.Drawing;
+using PMath = System.Math;
 
 #else
 using UnityEngine;
+using PMath = Paraparty.UnityPolyfill.MathPolyfill;
 #endif
 
 
@@ -115,7 +117,7 @@ namespace Paraparty.Colors
                     return White;
                 }
 
-                opacity = Backport.MathClamp(opacity, 0.0, 1.0);
+                opacity = PMath.Clamp(opacity, 0.0, 1.0);
             }
 
             var lch = colorAlpha[0].Split(' ').Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
@@ -145,7 +147,7 @@ namespace Paraparty.Colors
                 return White;
             }
 
-            l = Backport.MathClamp(l, 0.0, 1.0);
+            l = PMath.Clamp(l, 0.0, 1.0);
 
             if (Tools.TryParsePercentage(cStr, out c))
             {

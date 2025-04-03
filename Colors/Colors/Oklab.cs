@@ -3,9 +3,10 @@ using System.Linq;
 
 #if !UNITY_2020_1_OR_NEWER
 using System.Drawing;
-
+using PMath = System.Math;
 #else
 using UnityEngine;
+using PMath = Paraparty.UnityPolyfill.MathPolyfill;
 #endif
 
 
@@ -101,9 +102,9 @@ namespace Paraparty.Colors
             double s = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b;
 
             // Apply cubic root
-            double l_ = Backport.MathCbrt(l);
-            double m_ = Backport.MathCbrt(m);
-            double s_ = Backport.MathCbrt(s);
+            double l_ = PMath.Cbrt(l);
+            double m_ = PMath.Cbrt(m);
+            double s_ = PMath.Cbrt(s);
 
             // Final calculation
             double lCube = 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_;
@@ -175,7 +176,7 @@ namespace Paraparty.Colors
                     return White;
                 }
 
-                opacity = Backport.MathClamp(opacity, 0.0, 1.0);
+                opacity = PMath.Clamp(opacity, 0.0, 1.0);
             }
 
             var lch = colorAlpha[0].Split(' ').Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
@@ -219,7 +220,7 @@ namespace Paraparty.Colors
                 return White;
             }
 
-            a = Backport.MathClamp(a, -0.4, 0.4);
+            a = PMath.Clamp(a, -0.4, 0.4);
 
 
             if (Tools.TryParsePercentage(bStr, out b))
@@ -235,7 +236,7 @@ namespace Paraparty.Colors
                 return White;
             }
 
-            b = Backport.MathClamp(b, -0.4, 0.4);
+            b = PMath.Clamp(b, -0.4, 0.4);
 
             return new Oklab(l, a, b, opacity);
         }

@@ -1,12 +1,12 @@
 ﻿using System;
 using System.Runtime.CompilerServices;
 
-namespace Paraparty.Colors
+namespace Paraparty.UnityPolyfill
 {
-    internal static class Backport
+    public class MathPolyfill
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static double MathClamp(double value, double min, double max)
+        public static double Clamp(double value, double min, double max)
         {
 #if UNITY_2020_1_OR_NEWER && !UNITY_2022_1_OR_NEWER
             if (value > max)
@@ -19,9 +19,9 @@ namespace Paraparty.Colors
             return Math.Clamp(value, min, max);
 #endif
         }
-        
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static double MathCbrt(double d)
+        public static double Cbrt(double d)
         {
 #if UNITY_2020_1_OR_NEWER && !UNITY_2022_1_OR_NEWER
             return d < 0 ? -Math.Pow(-d, 1.0 / 3.0) : Math.Pow(d, 1.0 / 3.0);

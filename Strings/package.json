@@ -2,7 +2,7 @@
     "name": "party.para.util.strings",
     "author": "ParaParty",
     "displayName": "ParaPartyUtil.Strings",
-    "version": "3.0.0",
+    "version": "3.1.0",
     "unity": "2020.1",
     "description": "",
     "dependencies": {}

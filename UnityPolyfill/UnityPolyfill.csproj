@@ -21,7 +21,6 @@
         <AssemblyVersion>3.1.0.0</AssemblyVersion>
         <FileVersion>3.1.0.0</FileVersion>
 
-        <!-- Define compiler symbols based on target framework -->
         <DefineConstants Condition="'$(TargetFramework)' == 'netstandard2.0'">NET_STANDARD_2_0</DefineConstants>
         <DefineConstants Condition="'$(TargetFramework)' == 'netstandard2.1'">NET_STANDARD_2_1</DefineConstants>
 

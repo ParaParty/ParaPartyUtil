@@ -1,14 +1,17 @@
 ﻿using System;
 using System.Linq;
+
 #if !UNITY_2020_1_OR_NEWER
 using System.Drawing;
-using PMath = System.Math;
-
 #else
 using UnityEngine;
-using PMath = Paraparty.UnityPolyfill.MathPolyfill;
 #endif
 
+#if NET_STANDARD_2_1
+using PMath = System.Math;
+#else
+using PMath = Paraparty.UnityPolyfill.MathPolyfill;
+#endif
 
 namespace Paraparty.Colors
 {

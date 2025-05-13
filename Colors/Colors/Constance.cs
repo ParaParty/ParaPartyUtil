@@ -1,4 +1,4 @@
-﻿#if !UNITY_2020_1_OR_NEWER
+﻿#if PARAPARTYUTIL_NOUNITY
 using System.Drawing;
 #else
 using UnityEngine;
@@ -9,7 +9,7 @@ namespace Paraparty.Colors
     internal static class Constance
     {
         internal static Color White =
-#if !UNITY_2020_1_OR_NEWER
+#if PARAPARTYUTIL_NOUNITY
             Color.White;
 #else
             Color.white;

@@ -1,4 +1,4 @@
-﻿#if !UNITY_2020_1_OR_NEWER
+﻿#if PARAPARTYUTIL_NOUNITY
 using System.Drawing;
 #else
 using UnityEngine;
@@ -75,7 +75,7 @@ namespace Paraparty.Colors
 
         internal static Color MakeColorFromRgba(int red, int green, int blue, int alpha)
         {
-#if !UNITY_2020_1_OR_NEWER
+#if PARAPARTYUTIL_NOUNITY
             return Color.FromArgb(alpha, red, green, blue);
 #else
             return new Color(red * 1f / 255f, green * 1f / 255f, blue * 1f / 255f, alpha * 1f / 255f);
@@ -84,7 +84,7 @@ namespace Paraparty.Colors
 
         internal static Color MakeColorFromRgbaF(float red, float green, float blue, float alpha)
         {
-#if !UNITY_2020_1_OR_NEWER
+#if PARAPARTYUTIL_NOUNITY
             return Color.FromArgb(
                 (int)(alpha * 255),
                 (int)(red * 255),

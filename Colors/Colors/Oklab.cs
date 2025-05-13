@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Linq;
 
-#if !UNITY_2020_1_OR_NEWER
+#if PARAPARTYUTIL_NOUNITY
 using System.Drawing;
 #else
 using UnityEngine;
@@ -79,7 +79,7 @@ namespace Paraparty.Colors
 
         public static Oklab FromColor(Color color)
         {
-#if !UNITY_2020_1_OR_NEWER
+#if PARAPARTYUTIL_NOUNITY
             double r = (double)color.R / 255.0;
             double g = (double)color.G / 255.0;
             double b = (double)color.B / 255.0;

@@ -1,4 +1,4 @@
-﻿#if UNITY_2020_1_OR_NEWER
+﻿#if !PARAPARTYUTIL_NOUNITY
 using System;
 using System.Collections.Generic;
 using Unity.Collections;

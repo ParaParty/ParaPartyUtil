@@ -1,5 +1,4 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
     <PropertyGroup>
         <TargetFrameworks>netstandard2.0;netstandard2.1</TargetFrameworks>
         <LangVersion>8</LangVersion>
@@ -22,13 +21,16 @@
         <AssemblyVersion>3.1.0.0</AssemblyVersion>
         <FileVersion>3.1.0.0</FileVersion>
 
-        <DefineConstants Condition="'$(TargetFramework)' == 'netstandard2.0'">NET_STANDARD_2_0</DefineConstants>
-        <DefineConstants Condition="'$(TargetFramework)' == 'netstandard2.1'">NET_STANDARD_2_1</DefineConstants>
+        <BaseDefineConstants>PARAPARTYUTIL_NOUNITY</BaseDefineConstants>
+        <FrameworkDefineConstants Condition="'$(TargetFramework)' == 'netstandard2.0'">NET_STANDARD_2_0</FrameworkDefineConstants>
+        <FrameworkDefineConstants Condition="'$(TargetFramework)' == 'netstandard2.1'">NET_STANDARD_2_1</FrameworkDefineConstants>
+
+        <DefineConstants>$(BaseDefineConstants);$(FrameworkDefineConstants)</DefineConstants>
 
     </PropertyGroup>
 
     <ItemGroup>
-        <ProjectReference Condition="'$(TargetFramework)' == 'netstandard2.0'" Include="..\UnityPolyfill\UnityPolyfill.csproj" />
+        <ProjectReference Condition="'$(TargetFramework)' == 'netstandard2.0'" Include="..\UnityPolyfill\UnityPolyfill.csproj"/>
     </ItemGroup>
 
 </Project>

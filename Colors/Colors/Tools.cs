@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Globalization;
-#if UNITY_2020_1_OR_NEWER
+#if !PARAPARTYUTIL_NOUNITY
 using UnityEngine;
 #endif
 

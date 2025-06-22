@@ -1,4 +1,4 @@
-﻿using System.Drawing;
+using System.Drawing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Paraparty.Colors;
 
@@ -19,5 +19,12 @@ public class TestColors
     {
         Assert.AreEqual(Color.FromArgb(0xff, 0x94, 0x96, 0xdb), ColorUtils.ParseColor("oklch(70% 0.1 282)"));
         Assert.AreEqual(Color.FromArgb(0x7f, 0xb7, 0x9b, 0x50), ColorUtils.ParseColor("oklch(70% 0.1 89 / 0.5)"));
+    }
+
+    [TestMethod]
+    public void TestHsv()
+    {
+        Assert.AreEqual(Color.FromArgb(0xff, 0x94, 0x96, 0xdb), ColorUtils.ParseColor("hsv(238 32% 86%)"));
+        Assert.AreEqual("#12345678", ColorUtils.ParseColor("hsv(210 79% 34% / 0.47)").SerializeColor());
     }
 }

@@ -1,4 +1,4 @@
-﻿#if PARAPARTYUTIL_NOUNITY
+#if PARAPARTYUTIL_NOUNITY
 using System.Drawing;
 #else
 using UnityEngine;
@@ -56,6 +56,11 @@ namespace Paraparty.Colors
             if (src.StartsWith("oklch(") && src.EndsWith(")"))
             {
                 return Oklch.ParseOklch(src).ToColor();
+            }
+
+            if (src.StartsWith("hsv(") && src.EndsWith(")"))
+            {
+                return Hsv.ParseHsv(src).ToColor();
             }
 
             return Constance.White;

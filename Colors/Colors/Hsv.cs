@@ -93,7 +93,7 @@ namespace Paraparty.Colors
                     b = (float)(q * 255);
                     break;
             }
-
+            Console.WriteLine($"r={r}, g={g}, b={b}");
             return ColorUtils.MakeColorFromRgbaF(r, g, b, (float)Opacity);
         }
 
@@ -204,18 +204,18 @@ namespace Paraparty.Colors
                 return White;
             }
 
-            string lStr = lch[0];
-            string aStr = lch[1];
-            string bStr = lch[2];
+            string hStr = lch[0];
+            string sStr = lch[1];
+            string vStr = lch[2];
 
-            double l = 0;
-            double a = 0;
-            double b = 0;
+            double h = 0;
+            double s = 0;
+            double v = 0;
 
-            if (Tools.TryParsePercentage(lStr, out l))
+            if (Tools.TryParsePercentage(hStr, out h))
             {
             }
-            else if (Tools.TryParseDouble(lStr, out l))
+            else if (Tools.TryParseDouble(hStr, out h))
             {
             }
             else
@@ -225,11 +225,10 @@ namespace Paraparty.Colors
             }
 
 
-            if (Tools.TryParsePercentage(aStr, out a))
+            if (Tools.TryParsePercentage(sStr, out s))
             {
-                a = a * 0.8 - 0.4;
             }
-            else if (Tools.TryParseDouble(aStr, out a))
+            else if (Tools.TryParseDouble(sStr, out s))
             {
             }
             else
@@ -238,14 +237,13 @@ namespace Paraparty.Colors
                 return White;
             }
 
-            a = PMath.Clamp(a, -0.4, 0.4);
+            s = PMath.Clamp(s, 0, 1.0);
 
 
-            if (Tools.TryParsePercentage(bStr, out b))
+            if (Tools.TryParsePercentage(vStr, out v))
             {
-                b = b * 0.8 - 0.4;
             }
-            else if (Tools.TryParseDouble(bStr, out b))
+            else if (Tools.TryParseDouble(vStr, out v))
             {
             }
             else
@@ -254,9 +252,9 @@ namespace Paraparty.Colors
                 return White;
             }
 
-            b = PMath.Clamp(b, -0.4, 0.4);
+            v = PMath.Clamp(v, 0, 1.0);
 
-            return new Hsv(l, a, b, opacity);
+            return new Hsv(h, s, v, opacity);
         }
     }
 }

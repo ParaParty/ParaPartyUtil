@@ -1,0 +1,11 @@
+<Solution>
+  <Project Path="ChiseledQuartz/ChiseledQuartz.csproj" />
+  <Project Path="Colors/Colors.csproj" />
+  <Project Path="Demo.ASP.NET/Demo.ASP.NET.csproj" />
+  <Project Path="JsonChan/JsonChan.csproj" />
+  <Project Path="Kotlinize/Kotlinize.csproj" />
+  <Project Path="Strings/Strings.csproj" />
+  <Project Path="Tests/Tests.csproj" />
+  <Project Path="UnityNative/UnityNative.csproj" />
+  <Project Path="UnityPolyfill/UnityPolyfill.csproj" />
+</Solution>

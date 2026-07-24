@@ -1,164 +1,227 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
 
 namespace Paraparty.UnityNative.Base
 {
     /// <summary>
-    /// Represents a class which manages its own memory. 
+    /// Owns a staged, retry-aware cleanup lifecycle.
     /// </summary>
     public abstract class DisposableObject : IDisposable
     {
-        /// <summary>
-        /// Gets or sets a handle which allocates using unmanaged code.
-        /// </summary>
+        private sealed class DisposeAttempt
+        {
+            public DisposeAttempt(long epoch, int ownerThreadId)
+            {
+                Epoch = epoch;
+                OwnerThreadId = ownerThreadId;
+            }
+
+            public long Epoch { get; }
+
+            public int OwnerThreadId { get; }
+
+            public bool IsComplete { get; set; }
+
+            public NativeCleanupException Failure { get; set; }
+        }
+
+        private static readonly CleanupStage[] OrderedStages =
+        {
+            CleanupStage.Managed,
+            CleanupStage.CallbackFence,
+            CleanupStage.Native,
+            CleanupStage.OwnerUnpublish,
+        };
+
+        private readonly object _lifecycleLock = new object();
+        private readonly Dictionary<CleanupStage, CleanupStageResult> _stageFailures =
+            new Dictionary<CleanupStage, CleanupStageResult>();
+
+        private DisposeAttempt _currentAttempt;
+        private NativeCleanupException _stableFailure;
+        private NativeLifecycleState _lifecycleState;
+        private CleanupStage _completedStages;
+        private NativeResourceLiveness _nativeLiveness;
+        private long _attemptEpoch;
+        private long _lifecycleEpoch;
+        private bool _baseNativeResourcesReleased;
+
         protected GCHandle DataHandle { get; private set; }
 
-        private volatile int _disposeSignaled = 0;
-
-        /// <summary>
-        /// Gets a value indicating whether this instance has been disposed.
-        /// </summary>
-        public bool IsDisposed { get; protected set; }
-
-        /// <summary>
-        /// Gets or sets a value indicating whether you permit disposing this instance.
-        /// </summary>
-        public bool IsEnabledDispose { get; set; }
-
-        /// <summary>
-        /// Gets or sets a memory address allocated by AllocMemory.
-        /// </summary>
         protected IntPtr AllocatedMemory { get; set; }
 
-        /// <summary>
-        /// Gets or sets the byte length of the allocated memory
-        /// </summary>
         protected long AllocatedMemorySize { get; set; }
 
-        /// <summary>
-        /// Default constructor
-        /// </summary>
         protected DisposableObject()
-            : this(true)
+            : this(NativeOwnershipKind.Owned)
         {
         }
 
-        /// <summary>
-        /// Constructor
-        /// </summary>
-        /// <param name="isEnabledDispose">true if you permit disposing this class by GC</param>
-        protected DisposableObject(bool isEnabledDispose)
+        protected DisposableObject(NativeOwnershipKind ownership)
         {
-            IsDisposed = false;
-            IsEnabledDispose = isEnabledDispose;
+            if (ownership != NativeOwnershipKind.Owned && ownership != NativeOwnershipKind.Borrowed)
+                throw new ArgumentOutOfRangeException(nameof(ownership));
+
+            Ownership = ownership;
+            _lifecycleState = NativeLifecycleState.Active;
+            _nativeLiveness = NativeResourceLiveness.KnownLive;
             AllocatedMemory = IntPtr.Zero;
-            AllocatedMemorySize = 0;
         }
 
-        /// <summary>
-        /// Releases the resources
-        /// </summary>
+        public NativeOwnershipKind Ownership { get; }
+
+        public NativeLifecycleState LifecycleState
+        {
+            get
+            {
+                lock (_lifecycleLock)
+                {
+                    return _lifecycleState;
+                }
+            }
+        }
+
+        public bool IsDisposed => LifecycleState == NativeLifecycleState.Disposed;
+
+        public CleanupStage CompletedCleanupStages
+        {
+            get
+            {
+                lock (_lifecycleLock)
+                {
+                    return _completedStages;
+                }
+            }
+        }
+
+        public long AttemptEpoch
+        {
+            get
+            {
+                lock (_lifecycleLock)
+                {
+                    return _attemptEpoch;
+                }
+            }
+        }
+
+        public long LifecycleEpoch
+        {
+            get
+            {
+                lock (_lifecycleLock)
+                {
+                    return _lifecycleEpoch;
+                }
+            }
+        }
+
+        public NativeResourceLiveness NativeLiveness
+        {
+            get
+            {
+                lock (_lifecycleLock)
+                {
+                    return _nativeLiveness;
+                }
+            }
+        }
+
         public void Dispose()
         {
-            Dispose(true);
+            DisposeAttempt attempt;
+            bool ownsAttempt;
+
+            lock (_lifecycleLock)
+            {
+                if (_lifecycleState == NativeLifecycleState.Disposed ||
+                    _lifecycleState == NativeLifecycleState.Transferred)
+                {
+                    GC.SuppressFinalize(this);
+                    return;
+                }
+
+                if (_lifecycleState == NativeLifecycleState.Disposing)
+                {
+                    attempt = _currentAttempt;
+                    if (attempt.OwnerThreadId == Thread.CurrentThread.ManagedThreadId)
+                        return;
+
+                    ownsAttempt = false;
+                }
+                else
+                {
+                    if (_stableFailure != null)
+                        throw _stableFailure;
+
+                    attempt = StartAttemptLocked();
+                    ownsAttempt = true;
+                }
+            }
+
+            if (ownsAttempt)
+                ExecuteAttempt(attempt, true);
+            else
+                WaitForAttempt(attempt);
+
+            if (attempt.Failure != null)
+                throw attempt.Failure;
+
             GC.SuppressFinalize(this);
         }
 
-        /// <summary>
-        /// Releases the resources
-        /// </summary>
-        /// <param name="disposing">
-        /// If disposing equals true, the method has been called directly or indirectly by a user's code. Managed and unmanaged resources can be disposed.
-        /// If false, the method has been called by the runtime from inside the finalizer and you should not reference other objects. Only unmanaged resources can be disposed.
-        /// </param>
-        protected virtual void Dispose(bool disposing)
-        {
-#pragma warning disable 420
-            // http://stackoverflow.com/questions/425132/a-reference-to-a-volatile-field-will-not-be-treated-as-volatile-implications
-            if (Interlocked.Exchange(ref _disposeSignaled, 1) != 0)
-            {
-                return;
-            }
-
-            IsDisposed = true;
-
-            if (IsEnabledDispose)
-            {
-                if (disposing)
-                {
-                    DisposeManaged();
-                }
-
-                DisposeUnmanaged();
-            }
-        }
-
-        /// <summary>
-        /// Destructor
-        /// </summary>
         ~DisposableObject()
         {
-            Dispose(false);
+            try
+            {
+                ExecuteFinalizerAttempt();
+            }
+            catch
+            {
+                // A finalizer must never terminate the process. Detailed diagnostics are added later.
+            }
         }
 
-        /// <summary>
-        /// Releases managed resources
-        /// </summary>
-        protected virtual void DisposeManaged()
+        protected virtual CleanupStageResult CleanupManagedResources()
         {
+            return CleanupStageResult.Succeeded();
         }
 
-        /// <summary>
-        /// Releases unmanaged resources
-        /// </summary>
-        protected virtual void DisposeUnmanaged()
+        protected virtual CleanupStageResult FenceNativeCallbacks()
         {
-            if (DataHandle.IsAllocated)
-            {
-                DataHandle.Free();
-            }
-
-            if (AllocatedMemorySize > 0)
-            {
-                GC.RemoveMemoryPressure(AllocatedMemorySize);
-                AllocatedMemorySize = 0;
-            }
-
-            if (AllocatedMemory != IntPtr.Zero)
-            {
-                Marshal.FreeHGlobal(AllocatedMemory);
-                AllocatedMemory = IntPtr.Zero;
-            }
+            return CleanupStageResult.Succeeded();
         }
 
-        /// <summary>
-        /// Pins the object to be allocated by unmanaged code.
-        /// </summary>
-        /// <param name="obj"></param>
-        /// <returns></returns>
-        // ReSharper disable once InconsistentNaming
+        protected virtual NativeCleanupResult CleanupNativeResource()
+        {
+            return NativeCleanupResult.Freed();
+        }
+
+        protected virtual CleanupStageResult UnpublishOwner()
+        {
+            return CleanupStageResult.Succeeded();
+        }
+
         protected internal GCHandle AllocGCHandle(object obj)
         {
-            if (obj is null)
+            if (obj == null)
                 throw new ArgumentNullException(nameof(obj));
 
+            ThrowIfDisposed();
             if (DataHandle.IsAllocated)
                 DataHandle.Free();
             DataHandle = GCHandle.Alloc(obj, GCHandleType.Pinned);
             return DataHandle;
         }
 
-        /// <summary>
-        /// Allocates the specified size of memory.
-        /// </summary>
-        /// <param name="size"></param>
-        /// <returns></returns>
         protected IntPtr AllocMemory(int size)
         {
             if (size <= 0)
                 throw new ArgumentOutOfRangeException(nameof(size));
 
+            ThrowIfDisposed();
             if (AllocatedMemory != IntPtr.Zero)
                 Marshal.FreeHGlobal(AllocatedMemory);
             AllocatedMemory = Marshal.AllocHGlobal(size);
@@ -166,17 +229,8 @@ namespace Paraparty.UnityNative.Base
             return AllocatedMemory;
         }
 
-        /// <summary>
-        /// Notifies the allocated size of memory.
-        /// </summary>
-        /// <param name="size"></param>
         protected void NotifyMemoryPressure(long size)
         {
-            // Apparently locks occur during multithreaded operation. Temporarily discontinued.
-            if (!IsEnabledDispose)
-                return;
-            if (size == 0)
-                return;
             if (size <= 0)
                 throw new ArgumentOutOfRangeException(nameof(size));
 
@@ -187,17 +241,318 @@ namespace Paraparty.UnityNative.Base
             GC.AddMemoryPressure(size);
         }
 
-        /// <summary>
-        /// If this object is disposed, then ObjectDisposedException is thrown.
-        /// </summary>
         public void ThrowIfDisposed()
         {
-            if (IsDisposed)
+            NativeLifecycleState state = LifecycleState;
+            if (state != NativeLifecycleState.Active)
             {
-                string message = $"Accessing disposed object of type {GetType().FullName}. " +
-                                 $"Object Hash: {this.GetHashCode():X}, ";
+                string message = "Accessing an unavailable object of type " + GetType().FullName +
+                                 ". LifecycleState=" + state + ", Object Hash: " + GetHashCode().ToString("X") + ".";
                 throw new ObjectDisposedException(GetType().FullName, message);
             }
+        }
+
+        private DisposeAttempt StartAttemptLocked()
+        {
+            checked
+            {
+                _attemptEpoch++;
+                _lifecycleEpoch++;
+            }
+
+            _lifecycleState = NativeLifecycleState.Disposing;
+            _currentAttempt = new DisposeAttempt(_attemptEpoch, Thread.CurrentThread.ManagedThreadId);
+            return _currentAttempt;
+        }
+
+        private void WaitForAttempt(DisposeAttempt attempt)
+        {
+            lock (_lifecycleLock)
+            {
+                while (!attempt.IsComplete)
+                    Monitor.Wait(_lifecycleLock);
+            }
+        }
+
+        private void ExecuteAttempt(DisposeAttempt attempt, bool includeManagedStage)
+        {
+            if (includeManagedStage)
+                ExecuteStage(CleanupStage.Managed, InvokeManagedCleanup);
+
+            ExecuteStage(CleanupStage.CallbackFence, InvokeCallbackFence);
+
+            if (IsStageComplete(CleanupStage.CallbackFence))
+                ExecuteNativeStage();
+
+            if (IsStageComplete(CleanupStage.Native))
+                ExecuteStage(CleanupStage.OwnerUnpublish, InvokeOwnerUnpublish);
+
+            CompleteAttempt(attempt);
+        }
+
+        private void ExecuteFinalizerAttempt()
+        {
+            DisposeAttempt attempt;
+
+            lock (_lifecycleLock)
+            {
+                if (_lifecycleState == NativeLifecycleState.Disposed ||
+                    _lifecycleState == NativeLifecycleState.Transferred ||
+                    _lifecycleState == NativeLifecycleState.Disposing ||
+                    _stableFailure != null)
+                {
+                    return;
+                }
+
+                attempt = StartAttemptLocked();
+            }
+
+            ExecuteAttempt(attempt, false);
+        }
+
+        private void ExecuteStage(CleanupStage stage, Func<CleanupStageResult> cleanup)
+        {
+            if (IsStageComplete(stage))
+                return;
+
+            CleanupStageResult result;
+            try
+            {
+                result = cleanup();
+                if (result == null)
+                    throw new InvalidOperationException("Cleanup stage " + stage + " returned null.");
+            }
+            catch (Exception exception)
+            {
+                result = CleanupStageResult.NonRetryableFailure(exception);
+            }
+
+            lock (_lifecycleLock)
+            {
+                if (result.IsSuccess)
+                {
+                    _completedStages |= stage;
+                    _stageFailures.Remove(stage);
+                }
+                else
+                {
+                    _stageFailures[stage] = result;
+                }
+            }
+        }
+
+        private void ExecuteNativeStage()
+        {
+            if (IsStageComplete(CleanupStage.Native))
+                return;
+
+            NativeCleanupResult nativeResult = null;
+            CleanupStageResult baseResourcesResult;
+
+            if (Ownership == NativeOwnershipKind.Borrowed)
+            {
+                lock (_lifecycleLock)
+                {
+                    _nativeLiveness = NativeResourceLiveness.KnownLive;
+                }
+            }
+            else
+            {
+                try
+                {
+                    nativeResult = CleanupNativeResource();
+                    if (nativeResult == null)
+                        throw new InvalidOperationException("Native cleanup returned null.");
+                }
+                catch (Exception exception)
+                {
+                    nativeResult = NativeCleanupResult.LivenessUnknownFailure(exception);
+                }
+
+                lock (_lifecycleLock)
+                {
+                    _nativeLiveness = nativeResult.Liveness;
+                }
+            }
+
+            baseResourcesResult = ReleaseBaseNativeResources();
+
+            lock (_lifecycleLock)
+            {
+                bool nativeSucceeded = Ownership == NativeOwnershipKind.Borrowed || nativeResult.IsSuccess;
+                if (nativeSucceeded && baseResourcesResult.IsSuccess)
+                {
+                    _completedStages |= CleanupStage.Native;
+                    _stageFailures.Remove(CleanupStage.Native);
+                    return;
+                }
+
+                var exceptions = new List<Exception>();
+                CleanupFailureDisposition disposition = CleanupFailureDisposition.Retryable;
+
+                if (!nativeSucceeded)
+                {
+                    exceptions.Add(nativeResult.Exception);
+                    disposition = nativeResult.Disposition;
+                }
+
+                if (!baseResourcesResult.IsSuccess)
+                {
+                    exceptions.Add(baseResourcesResult.Exception);
+                    disposition = CleanupFailureDisposition.NonRetryable;
+                }
+
+                Exception exception = exceptions.Count == 1
+                    ? exceptions[0]
+                    : new AggregateException("Native-stage substeps failed.", exceptions);
+
+                _stageFailures[CleanupStage.Native] = disposition == CleanupFailureDisposition.Retryable
+                    ? CleanupStageResult.RetryableFailure(exception)
+                    : CleanupStageResult.NonRetryableFailure(exception);
+            }
+        }
+
+        private CleanupStageResult ReleaseBaseNativeResources()
+        {
+            lock (_lifecycleLock)
+            {
+                if (_baseNativeResourcesReleased)
+                    return CleanupStageResult.Succeeded();
+            }
+
+            var failures = new List<Exception>();
+
+            try
+            {
+                if (DataHandle.IsAllocated)
+                    DataHandle.Free();
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+
+            try
+            {
+                if (AllocatedMemorySize > 0)
+                {
+                    GC.RemoveMemoryPressure(AllocatedMemorySize);
+                    AllocatedMemorySize = 0;
+                }
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+
+            try
+            {
+                if (AllocatedMemory != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(AllocatedMemory);
+                    AllocatedMemory = IntPtr.Zero;
+                }
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+
+            if (failures.Count != 0)
+            {
+                return CleanupStageResult.NonRetryableFailure(
+                    failures.Count == 1
+                        ? failures[0]
+                        : new AggregateException("Base native resource cleanup failed.", failures));
+            }
+
+            lock (_lifecycleLock)
+            {
+                _baseNativeResourcesReleased = true;
+            }
+
+            return CleanupStageResult.Succeeded();
+        }
+
+        private void CompleteAttempt(DisposeAttempt attempt)
+        {
+            lock (_lifecycleLock)
+            {
+                if (_completedStages == CleanupStage.All)
+                {
+                    _lifecycleState = NativeLifecycleState.Disposed;
+                    attempt.Failure = null;
+                }
+                else
+                {
+                    _lifecycleState = NativeLifecycleState.DisposeFaulted;
+                    attempt.Failure = BuildFailureLocked(attempt.Epoch);
+                    if (!attempt.Failure.IsRetryable)
+                        _stableFailure = attempt.Failure;
+                }
+
+                attempt.IsComplete = true;
+                Monitor.PulseAll(_lifecycleLock);
+            }
+        }
+
+        private NativeCleanupException BuildFailureLocked(long attemptEpoch)
+        {
+            CleanupStage failedStages = CleanupStage.None;
+            bool hasRetryableFailure = false;
+            bool hasNonRetryableFailure = false;
+            var exceptions = new List<Exception>();
+
+            foreach (CleanupStage stage in OrderedStages)
+            {
+                CleanupStageResult result;
+                if (!_stageFailures.TryGetValue(stage, out result))
+                    continue;
+
+                failedStages |= stage;
+                exceptions.Add(result.Exception);
+                hasRetryableFailure |= result.Disposition == CleanupFailureDisposition.Retryable;
+                hasNonRetryableFailure |= result.Disposition == CleanupFailureDisposition.NonRetryable;
+            }
+
+            if (exceptions.Count == 0)
+            {
+                exceptions.Add(new InvalidOperationException(
+                    "Cleanup ended without completing all required stages and without a stage diagnosis."));
+                hasNonRetryableFailure = true;
+            }
+
+            return new NativeCleanupException(
+                attemptEpoch,
+                NativeLifecycleState.DisposeFaulted,
+                _completedStages,
+                failedStages,
+                _nativeLiveness,
+                hasRetryableFailure && !hasNonRetryableFailure,
+                exceptions);
+        }
+
+        private bool IsStageComplete(CleanupStage stage)
+        {
+            lock (_lifecycleLock)
+            {
+                return (_completedStages & stage) == stage;
+            }
+        }
+
+        private CleanupStageResult InvokeManagedCleanup()
+        {
+            return CleanupManagedResources();
+        }
+
+        private CleanupStageResult InvokeCallbackFence()
+        {
+            return FenceNativeCallbacks();
+        }
+
+        private CleanupStageResult InvokeOwnerUnpublish()
+        {
+            return UnpublishOwner();
         }
     }
 }

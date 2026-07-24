@@ -18,7 +18,11 @@ public class NativeOperationLeaseTests
         var value = new LeaseDisposable(new IntPtr(0x1234));
         NativeOperationLease lease = value.EnterOperation();
 
-        Task dispose = Task.Run(value.Dispose);
+        Task dispose;
+        using (ExecutionContext.SuppressFlow())
+        {
+            dispose = Task.Run(value.Dispose);
+        }
         Assert.IsTrue(SpinWait.SpinUntil(
             () => value.LifecycleState == NativeLifecycleState.Disposing,
             TimeSpan.FromSeconds(5)));
@@ -63,7 +67,11 @@ public class NativeOperationLeaseTests
         Assert.AreEqual(stale.LifecycleEpoch, current.LifecycleEpoch);
 
         stale.Dispose();
-        Task dispose = Task.Run(value.Dispose);
+        Task dispose;
+        using (ExecutionContext.SuppressFlow())
+        {
+            dispose = Task.Run(value.Dispose);
+        }
         Assert.IsTrue(SpinWait.SpinUntil(
             () => value.LifecycleState == NativeLifecycleState.Disposing,
             TimeSpan.FromSeconds(5)));
@@ -150,6 +158,107 @@ public class NativeOperationLeaseTests
             throw new StageException();
         });
 
+        value.Dispose();
+        Assert.AreEqual(NativeLifecycleState.Disposed, value.LifecycleState);
+    }
+
+    [TestMethod]
+    public void DisposeInsideLeaseFailsFastBeforeClosingAdmission()
+    {
+        var value = new LeaseDisposable(new IntPtr(1));
+
+        Task test = Task.Run(() =>
+        {
+            using (NativeOperationLease lease = value.EnterOperation())
+            {
+                InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(value.Dispose);
+                StringAssert.Contains(failure.Message, "operation leases");
+                Assert.AreEqual(NativeLifecycleState.Active, value.LifecycleState);
+
+                using (NativeOperationLease nested = value.EnterOperation())
+                {
+                    Assert.AreEqual(new IntPtr(1), nested.Pointer);
+                }
+            }
+        });
+
+        Assert.IsTrue(test.Wait(TimeSpan.FromSeconds(5)), "Self-dispose must fail instead of waiting for its own lease.");
+        value.Dispose();
+        Assert.AreEqual(NativeLifecycleState.Disposed, value.LifecycleState);
+        Assert.AreEqual(1, value.NativeCleanupCalls);
+    }
+
+    [TestMethod]
+    public void NestedLeaseKeepsSelfDisposeRejectedUntilOutermostRelease()
+    {
+        var value = new LeaseDisposable(new IntPtr(1));
+        NativeOperationLease outer = value.EnterOperation();
+        NativeOperationLease inner = value.EnterOperation();
+
+        Assert.ThrowsException<InvalidOperationException>(value.Dispose);
+        inner.Dispose();
+        Assert.ThrowsException<InvalidOperationException>(value.Dispose);
+        outer.Dispose();
+
+        value.Dispose();
+        Assert.AreEqual(NativeLifecycleState.Disposed, value.LifecycleState);
+        Assert.AreEqual(1, value.NativeCleanupCalls);
+    }
+
+    [TestMethod]
+    public void LogicalChildContextCannotDisposeAnInheritedLeaseOwner()
+    {
+        var value = new LeaseDisposable(new IntPtr(1));
+        using (NativeOperationLease lease = value.EnterOperation())
+        {
+            Task<Exception> callback = Task.Run(() => CaptureException(value.Dispose));
+
+            Assert.IsTrue(callback.Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsInstanceOfType<InvalidOperationException>(callback.Result);
+            Assert.AreEqual(NativeLifecycleState.Active, value.LifecycleState);
+        }
+
+        value.Dispose();
+        Assert.AreEqual(1, value.NativeCleanupCalls);
+    }
+
+    [TestMethod]
+    public void PointerAccessAttachesLeaseToAContextWithoutExecutionFlow()
+    {
+        var value = new LeaseDisposable(new IntPtr(1));
+        NativeOperationLease lease = value.EnterOperation();
+        Task<Exception> callback;
+
+        using (ExecutionContext.SuppressFlow())
+        {
+            callback = Task.Run(() =>
+            {
+                Assert.AreEqual(new IntPtr(1), lease.Pointer);
+                return CaptureException(value.Dispose);
+            });
+        }
+
+        Assert.IsTrue(callback.Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsInstanceOfType<InvalidOperationException>(callback.Result);
+
+        lease.Dispose();
+        value.Dispose();
+        Assert.AreEqual(1, value.NativeCleanupCalls);
+    }
+
+    [TestMethod]
+    public void LeaseCanStillBeReleasedFromAContextWithoutExecutionFlow()
+    {
+        var value = new LeaseDisposable(new IntPtr(1));
+        NativeOperationLease lease = value.EnterOperation();
+        Task release;
+
+        using (ExecutionContext.SuppressFlow())
+        {
+            release = Task.Run(lease.Dispose);
+        }
+
+        Assert.IsTrue(release.Wait(TimeSpan.FromSeconds(5)));
         value.Dispose();
         Assert.AreEqual(NativeLifecycleState.Disposed, value.LifecycleState);
     }

@@ -12,8 +12,9 @@ namespace Paraparty.UnityNative.Base
     /// Construction either publishes one pointer immediately or leaves it unpublished for a single later
     /// <see cref="PublishNativePointer"/> call. The pointer is never exposed as a reusable property. Each
     /// native operation must call <see cref="EnterOperation"/> and hold the returned lease across the complete
-    /// P/Invoke interval. Disposal closes admission, waits for every lease token, executes staged cleanup,
-    /// and unpublishes the pointer only after the native stage succeeds.
+    /// P/Invoke interval. Disposal from the same logical execution context as an active lease is rejected
+    /// before lifecycle arbitration; external disposal closes admission, waits for every lease token, executes
+    /// staged cleanup, and unpublishes the pointer only after the native stage succeeds.
     /// </para>
     /// <para>
     /// Lease identity combines a process-wide monotonic owner ID, lifecycle epoch, and per-owner monotonic
@@ -155,13 +156,27 @@ namespace Paraparty.UnityNative.Base
 
                 long leaseToken = NextMonotonicId(ref _lastLeaseToken);
                 long lifecycleEpoch = LifecycleEpoch;
-                _activeLeaseEpochs.Add(leaseToken, lifecycleEpoch);
-                return new NativeOperationLease(
-                    this,
-                    _nativePointer,
+                var marker = new NativeOperationExecutionMarker(
                     _operationOwnerId,
                     lifecycleEpoch,
                     leaseToken);
+                var lease = new NativeOperationLease(
+                    this,
+                    _nativePointer,
+                    marker);
+
+                _activeLeaseEpochs.Add(leaseToken, lifecycleEpoch);
+                try
+                {
+                    NativeOperationExecutionContext.Enter(marker);
+                    return lease;
+                }
+                catch
+                {
+                    marker.Deactivate();
+                    _activeLeaseEpochs.Remove(leaseToken);
+                    throw;
+                }
             }
         }
 
@@ -287,6 +302,11 @@ namespace Paraparty.UnityNative.Base
         protected sealed override void ValidateExplicitDisposeThread()
         {
             ValidateOperationThread();
+            if (NativeOperationExecutionContext.ContainsOwner(_operationOwnerId))
+            {
+                throw new InvalidOperationException(
+                    "A native wrapper cannot be disposed from an execution context that holds one of its operation leases.");
+            }
         }
 
         /// <inheritdoc/>

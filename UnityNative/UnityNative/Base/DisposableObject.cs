@@ -83,7 +83,14 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
-        public bool IsDisposed => LifecycleState == NativeLifecycleState.Disposed;
+        public bool IsDisposed
+        {
+            get
+            {
+                NativeLifecycleState state = LifecycleState;
+                return state == NativeLifecycleState.Disposed || state == NativeLifecycleState.Transferred;
+            }
+        }
 
         public CleanupStage CompletedCleanupStages
         {
@@ -212,6 +219,23 @@ namespace Paraparty.UnityNative.Base
 
         protected virtual void CloseOperationAdmissionAndDrain()
         {
+        }
+
+        protected bool TryTransitionToTransferred()
+        {
+            lock (_lifecycleLock)
+            {
+                if (_lifecycleState != NativeLifecycleState.Active)
+                    return false;
+
+                checked
+                {
+                    _lifecycleEpoch++;
+                }
+
+                _lifecycleState = NativeLifecycleState.Transferred;
+                return true;
+            }
         }
 
         protected internal GCHandle AllocGCHandle(object obj)

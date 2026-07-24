@@ -20,6 +20,7 @@ namespace Paraparty.UnityNative.Base
         private IntPtr _nativePointer;
         private bool _pointerPublished;
         private bool _operationAdmissionClosed;
+        private bool _transferInProgress;
         private long _lastLeaseToken;
 
         protected DisposableNativeObject()
@@ -74,6 +75,10 @@ namespace Paraparty.UnityNative.Base
 
         public NativeAccessPolicy AccessPolicy => _accessPolicy;
 
+        protected virtual bool SupportsNativeTransfer => false;
+
+        protected virtual CleanupStage RequiredCleanupBeforeTransfer => CleanupStage.All;
+
         public NativeOperationLease EnterOperation()
         {
             lock (_operationLock)
@@ -93,6 +98,65 @@ namespace Paraparty.UnityNative.Base
                     _operationOwnerId,
                     lifecycleEpoch,
                     leaseToken);
+            }
+        }
+
+        public NativeTransferTicket CreateTransferTicket()
+        {
+            lock (_operationLock)
+            {
+                ValidateOperationThread();
+                if (!SupportsNativeTransfer)
+                    throw new NotSupportedException("This native wrapper does not support ownership transfer.");
+                if (RequiredCleanupBeforeTransfer != CleanupStage.None)
+                {
+                    throw new InvalidOperationException(
+                        "This native wrapper has cleanup requirements that cannot be deferred to a transfer ticket.");
+                }
+                if (_operationAdmissionClosed || _transferInProgress ||
+                    LifecycleState != NativeLifecycleState.Active)
+                {
+                    throw CreateUnavailableException();
+                }
+                if (!_pointerPublished)
+                    throw new InvalidOperationException("The native pointer has not been published.");
+                if (_activeLeaseEpochs.Count != 0)
+                    throw new InvalidOperationException("Native ownership cannot be transferred while operations are active.");
+
+                _transferInProgress = true;
+                _operationAdmissionClosed = true;
+            }
+
+            CleanupStageResult preparation = InvokeTransferPreparation();
+            if (!preparation.IsSuccess)
+            {
+                lock (_operationLock)
+                {
+                    _transferInProgress = false;
+                    if (LifecycleState == NativeLifecycleState.Active)
+                        _operationAdmissionClosed = false;
+                    Monitor.PulseAll(_operationLock);
+                }
+
+                throw new InvalidOperationException("Native transfer preparation failed.", preparation.Exception);
+            }
+
+            lock (_operationLock)
+            {
+                _transferInProgress = false;
+                if (!TryTransitionToTransferred())
+                {
+                    Monitor.PulseAll(_operationLock);
+                    throw CreateUnavailableException();
+                }
+
+                IntPtr transferredPointer = _nativePointer;
+                _nativePointer = IntPtr.Zero;
+                _pointerPublished = false;
+                Monitor.PulseAll(_operationLock);
+                GC.SuppressFinalize(this);
+
+                return new NativeTransferTicket(transferredPointer, CleanupTransferredNativeResource);
             }
         }
 
@@ -120,6 +184,11 @@ namespace Paraparty.UnityNative.Base
 
         protected abstract NativeCleanupResult CleanupNativeResource(IntPtr nativePointer);
 
+        protected virtual CleanupStageResult PrepareNativeTransfer()
+        {
+            return CleanupStageResult.Succeeded();
+        }
+
         protected override CleanupStageResult UnpublishOwner()
         {
             lock (_operationLock)
@@ -141,7 +210,7 @@ namespace Paraparty.UnityNative.Base
             lock (_operationLock)
             {
                 _operationAdmissionClosed = true;
-                while (_activeLeaseEpochs.Count != 0)
+                while (_activeLeaseEpochs.Count != 0 || _transferInProgress)
                     Monitor.Wait(_operationLock);
             }
         }
@@ -192,6 +261,34 @@ namespace Paraparty.UnityNative.Base
             {
                 throw new InvalidOperationException(
                     "This native wrapper is confined to its creating managed thread.");
+            }
+        }
+
+        private CleanupStageResult InvokeTransferPreparation()
+        {
+            try
+            {
+                CleanupStageResult result = PrepareNativeTransfer();
+                return result ?? CleanupStageResult.NonRetryableFailure(
+                    new InvalidOperationException("Native transfer preparation returned null."));
+            }
+            catch (Exception exception)
+            {
+                return CleanupStageResult.NonRetryableFailure(exception);
+            }
+        }
+
+        private NativeCleanupResult CleanupTransferredNativeResource(IntPtr nativePointer)
+        {
+            try
+            {
+                NativeCleanupResult result = CleanupNativeResource(nativePointer);
+                return result ?? NativeCleanupResult.LivenessUnknownFailure(
+                    new InvalidOperationException("Transferred native cleanup returned null."));
+            }
+            catch (Exception exception)
+            {
+                return NativeCleanupResult.LivenessUnknownFailure(exception);
             }
         }
 

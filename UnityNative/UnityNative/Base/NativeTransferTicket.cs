@@ -13,7 +13,10 @@ namespace Paraparty.UnityNative.Base
     /// one lock so only one ownership path wins. Completion must present the monotonic ticket ID, preventing
     /// a stale native callback from completing a newer transfer even when an allocator reuses the same pointer.
     /// Rollback may be retried only after an oracle proves the resource remains live. Unknown liveness is a
-    /// stable fault because a second destroy could double-free the resource.
+    /// stable fault because a second destroy could double-free the resource. A ticket is constructed unarmed
+    /// before its wrapper publishes transfer, closing the constructor-failure ownership gap. Once armed, its
+    /// finalizer performs at most one finalizer-safe rollback from Pending or retryable RollbackFaulted state;
+    /// committed and terminal tickets never roll back, while stable or unexpected states emit no-throw telemetry.
     /// </remarks>
     public sealed class NativeTransferTicket : IDisposable
     {
@@ -27,6 +30,7 @@ namespace Paraparty.UnityNative.Base
         private NativeResourceLiveness _nativeLiveness;
         private NativeTransferCleanupException _stableFailure;
         private long _rollbackAttemptEpoch;
+        private int _ownershipPublished;
 
         internal NativeTransferTicket(
             IntPtr pointer,
@@ -103,6 +107,7 @@ namespace Paraparty.UnityNative.Base
                     return false;
 
                 _state = NativeTransferState.Committed;
+                GC.SuppressFinalize(this);
                 return true;
             }
         }
@@ -125,6 +130,7 @@ namespace Paraparty.UnityNative.Base
 
                 _nativeLiveness = NativeResourceLiveness.Freed;
                 _state = NativeTransferState.Completed;
+                GC.SuppressFinalize(this);
                 return true;
             }
         }
@@ -138,14 +144,100 @@ namespace Paraparty.UnityNative.Base
         {
             long attemptEpoch;
 
+            if (!TryStartRollback(false, out attemptEpoch, out _))
+                return false;
+
+            NativeCleanupResult result = InvokeRollbackCleanup();
+            NativeTransferCleanupException failure;
+            if (CompleteRollback(attemptEpoch, result, out failure))
+                return true;
+
+            throw failure;
+        }
+
+        /// <summary>Rolls back pending ownership. Committed or terminal tickets are left unchanged.</summary>
+        /// <exception cref="NativeTransferCleanupException">Pending rollback cleanup failed.</exception>
+        public void Dispose()
+        {
+            TryRollback();
+        }
+
+        /// <summary>
+        /// Attempts one finalizer-safe rollback for abandoned managed ownership and reports any remaining
+        /// nonterminal state without throwing.
+        /// </summary>
+        ~NativeTransferTicket()
+        {
+            NativeTransferDiagnostic diagnostic = null;
+            try
+            {
+                if (Volatile.Read(ref _ownershipPublished) == 0)
+                    return;
+
+                long attemptEpoch;
+                if (TryStartRollback(true, out attemptEpoch, out diagnostic))
+                {
+                    NativeCleanupResult result = InvokeRollbackCleanup();
+                    NativeTransferCleanupException failure;
+                    if (!CompleteRollback(attemptEpoch, result, out failure))
+                        diagnostic = CreateDiagnostic(failure);
+                }
+            }
+            catch (Exception exception)
+            {
+                try
+                {
+                    diagnostic = CreateDiagnostic(exception);
+                }
+                catch
+                {
+                    // Finalizer telemetry construction must not escape either.
+                }
+            }
+
+            if (diagnostic != null)
+                NativeTransferDiagnostics.ReportNoThrow(diagnostic);
+        }
+
+        internal void PublishOwnership()
+        {
+            Volatile.Write(ref _ownershipPublished, 1);
+        }
+
+        private bool TryStartRollback(
+            bool isFinalizer,
+            out long attemptEpoch,
+            out NativeTransferDiagnostic diagnostic)
+        {
             lock (_ticketLock)
             {
+                attemptEpoch = 0;
+                diagnostic = null;
+
                 if (_stableFailure != null)
-                    throw _stableFailure;
-                if (_state != NativeTransferState.Pending &&
-                    !(_state == NativeTransferState.RollbackFaulted &&
-                      _nativeLiveness == NativeResourceLiveness.KnownLive))
                 {
+                    if (!isFinalizer)
+                        throw _stableFailure;
+
+                    diagnostic = CreateDiagnosticLocked(_stableFailure);
+                    return false;
+                }
+
+                bool canRollback = _state == NativeTransferState.Pending ||
+                                   (_state == NativeTransferState.RollbackFaulted &&
+                                    _nativeLiveness == NativeResourceLiveness.KnownLive);
+                if (!canRollback)
+                {
+                    if (isFinalizer &&
+                        (_state == NativeTransferState.RollbackFaulted ||
+                         _state == NativeTransferState.RollingBack))
+                    {
+                        diagnostic = CreateDiagnosticLocked(
+                            new InvalidOperationException(
+                                "An abandoned transfer ticket could not safely start rollback from state " +
+                                _state + "."));
+                    }
+
                     return false;
                 }
 
@@ -156,21 +248,42 @@ namespace Paraparty.UnityNative.Base
 
                 attemptEpoch = _rollbackAttemptEpoch;
                 _state = NativeTransferState.RollingBack;
+                return true;
             }
+        }
 
-            NativeCleanupResult result = _rollbackCleanup(_pointer);
+        private NativeCleanupResult InvokeRollbackCleanup()
+        {
+            try
+            {
+                NativeCleanupResult result = _rollbackCleanup(_pointer);
+                return result ?? NativeCleanupResult.LivenessUnknownFailure(
+                    new InvalidOperationException("Transfer rollback cleanup returned null."));
+            }
+            catch (Exception exception)
+            {
+                return NativeCleanupResult.LivenessUnknownFailure(exception);
+            }
+        }
 
+        private bool CompleteRollback(
+            long attemptEpoch,
+            NativeCleanupResult result,
+            out NativeTransferCleanupException failure)
+        {
             lock (_ticketLock)
             {
                 _nativeLiveness = result.Liveness;
                 if (result.IsSuccess)
                 {
                     _state = NativeTransferState.RolledBack;
+                    failure = null;
+                    GC.SuppressFinalize(this);
                     return true;
                 }
 
                 _state = NativeTransferState.RollbackFaulted;
-                var failure = new NativeTransferCleanupException(
+                failure = new NativeTransferCleanupException(
                     TicketId,
                     attemptEpoch,
                     result.Liveness,
@@ -178,15 +291,27 @@ namespace Paraparty.UnityNative.Base
                     result.Exception);
                 if (!failure.IsRetryable)
                     _stableFailure = failure;
-                throw failure;
+                return false;
             }
         }
 
-        /// <summary>Rolls back pending ownership. Committed or terminal tickets are left unchanged.</summary>
-        /// <exception cref="NativeTransferCleanupException">Pending rollback cleanup failed.</exception>
-        public void Dispose()
+        private NativeTransferDiagnostic CreateDiagnostic(Exception exception)
         {
-            TryRollback();
+            lock (_ticketLock)
+            {
+                return CreateDiagnosticLocked(exception);
+            }
+        }
+
+        private NativeTransferDiagnostic CreateDiagnosticLocked(Exception exception)
+        {
+            return new NativeTransferDiagnostic(
+                TicketId,
+                _state,
+                _nativeLiveness,
+                _rollbackAttemptEpoch,
+                true,
+                exception);
         }
 
         private static long NextTicketId()

@@ -24,9 +24,10 @@ namespace Paraparty.UnityNative.Base
     /// </para>
     /// <para>
     /// Transfer is disabled unless a derived wrapper explicitly opts in and declares no cleanup stages that
-    /// must remain with the wrapper. Transfer closes admission, requires zero active leases, runs preparation,
-    /// moves the pointer to one <see cref="NativeTransferTicket"/>, and makes the wrapper terminal. Commit,
-    /// rollback, and completion are then arbitrated exclusively by that ticket.
+    /// must remain with the wrapper. It must also prove that rollback is safe on the finalizer thread so an
+    /// abandoned ticket cannot lose ownership. Transfer closes admission, requires zero active leases, runs
+    /// preparation, allocates an unarmed ticket, and only then atomically moves the pointer and makes the wrapper
+    /// terminal. Commit, rollback, completion, and abandoned-ticket recovery are arbitrated by that ticket.
     /// </para>
     /// </remarks>
     public abstract class DisposableNativeObject : DisposableObject, INativeOperationSource
@@ -138,6 +139,12 @@ namespace Paraparty.UnityNative.Base
         protected virtual bool SupportsNativeTransfer => false;
 
         /// <summary>
+        /// Gets whether transferred native rollback is explicitly safe to invoke from the finalizer thread.
+        /// Transfer is rejected unless a derived wrapper opts in.
+        /// </summary>
+        protected virtual bool IsTransferRollbackFinalizerSafe => false;
+
+        /// <summary>
         /// Gets cleanup stages that cannot move to a transfer ticket. Transfer requires
         /// <see cref="CleanupStage.None"/>.
         /// </summary>
@@ -184,7 +191,8 @@ namespace Paraparty.UnityNative.Base
         /// <returns>The ticket that becomes the sole native owner.</returns>
         /// <exception cref="NotSupportedException"><see cref="SupportsNativeTransfer"/> is false.</exception>
         /// <exception cref="InvalidOperationException">
-        /// Cleanup requirements remain, transfer preparation fails, the pointer is unpublished, or operations are active.
+        /// Finalizer-safe rollback is not enabled, cleanup requirements remain, transfer preparation fails,
+        /// the pointer is unpublished, or operations are active.
         /// </exception>
         /// <exception cref="ObjectDisposedException">Admission is closed or the wrapper is not active.</exception>
         public NativeTransferTicket CreateTransferTicket()
@@ -194,6 +202,11 @@ namespace Paraparty.UnityNative.Base
                 ValidateOperationThread();
                 if (!SupportsNativeTransfer)
                     throw new NotSupportedException("This native wrapper does not support ownership transfer.");
+                if (!IsTransferRollbackFinalizerSafe)
+                {
+                    throw new InvalidOperationException(
+                        "Native ownership transfer requires finalizer-safe rollback support.");
+                }
                 if (RequiredCleanupBeforeTransfer != CleanupStage.None)
                 {
                     throw new InvalidOperationException(
@@ -229,6 +242,20 @@ namespace Paraparty.UnityNative.Base
 
             lock (_operationLock)
             {
+                NativeTransferTicket ticket;
+                try
+                {
+                    ticket = new NativeTransferTicket(_nativePointer, CleanupTransferredNativeResource);
+                }
+                catch
+                {
+                    _transferInProgress = false;
+                    if (LifecycleState == NativeLifecycleState.Active)
+                        _operationAdmissionClosed = false;
+                    Monitor.PulseAll(_operationLock);
+                    throw;
+                }
+
                 _transferInProgress = false;
                 if (!TryTransitionToTransferred())
                 {
@@ -236,13 +263,13 @@ namespace Paraparty.UnityNative.Base
                     throw CreateUnavailableException();
                 }
 
-                IntPtr transferredPointer = _nativePointer;
                 _nativePointer = IntPtr.Zero;
                 _pointerPublished = false;
+                ticket.PublishOwnership();
                 Monitor.PulseAll(_operationLock);
                 GC.SuppressFinalize(this);
 
-                return new NativeTransferTicket(transferredPointer, CleanupTransferredNativeResource);
+                return ticket;
             }
         }
 

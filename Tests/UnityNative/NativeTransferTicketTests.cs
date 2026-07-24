@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -16,12 +19,15 @@ public class NativeTransferTicketTests
     {
         var unsupported = new TransferDisposable(false, CleanupStage.None);
         var requiredCleanup = new TransferDisposable(true, CleanupStage.Managed);
+        var unsafeRollback = new TransferDisposable(true, CleanupStage.None, false);
 
         Assert.ThrowsException<NotSupportedException>(unsupported.CreateTransferTicket);
         Assert.ThrowsException<InvalidOperationException>(requiredCleanup.CreateTransferTicket);
+        Assert.ThrowsException<InvalidOperationException>(unsafeRollback.CreateTransferTicket);
 
         unsupported.Dispose();
         requiredCleanup.Dispose();
+        unsafeRollback.Dispose();
     }
 
     [TestMethod]
@@ -69,6 +75,38 @@ public class NativeTransferTicketTests
         Assert.AreEqual(NativeLifecycleState.Active, value.LifecycleState);
         using NativeOperationLease lease = value.EnterOperation();
         Assert.AreEqual(new IntPtr(0x1234), lease.Pointer);
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public void TicketConstructionFailureLeavesOwnershipWithActiveWrapper()
+    {
+        FieldInfo ticketCounter = typeof(NativeTransferTicket).GetField(
+            "_lastTicketId",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.IsNotNull(ticketCounter);
+        long previous = (long)ticketCounter.GetValue(null);
+        var value = new TransferDisposable(true, CleanupStage.None);
+
+        try
+        {
+            ticketCounter.SetValue(null, long.MaxValue);
+
+            Assert.ThrowsException<InvalidOperationException>(value.CreateTransferTicket);
+
+            Assert.AreEqual(NativeLifecycleState.Active, value.LifecycleState);
+            using (NativeOperationLease lease = value.EnterOperation())
+            {
+                Assert.AreEqual(new IntPtr(0x1234), lease.Pointer);
+            }
+
+            value.Dispose();
+            Assert.AreEqual(1, value.CleanupCalls);
+        }
+        finally
+        {
+            ticketCounter.SetValue(null, previous);
+        }
     }
 
     [TestMethod]
@@ -238,6 +276,197 @@ public class NativeTransferTicketTests
         Assert.AreEqual(NativeResourceLiveness.Unknown, ticket.NativeLiveness);
         Assert.AreEqual(1, value.CleanupCalls);
         Assert.AreEqual(1L, ticket.RollbackAttemptEpoch);
+        GC.SuppressFinalize(ticket);
+    }
+
+    [TestMethod]
+    public void AbandonedPendingTicketRollsBackExactlyOnce()
+    {
+        var value = new TransferDisposable(true, CleanupStage.None);
+
+        WeakReference weak = AbandonPendingTicket(value);
+        ForceFinalization(weak);
+
+        Assert.AreEqual(1, value.CleanupCalls);
+    }
+
+    [TestMethod]
+    public void AbandonedCommittedCompletedAndRolledBackTicketsNeverRollbackAgain()
+    {
+        var committed = new TransferDisposable(true, CleanupStage.None);
+        var completed = new TransferDisposable(true, CleanupStage.None);
+        var rolledBack = new TransferDisposable(true, CleanupStage.None);
+
+        WeakReference committedWeak = AbandonCommittedTicket(committed);
+        WeakReference completedWeak = AbandonCompletedTicket(completed);
+        WeakReference rolledBackWeak = AbandonRolledBackTicket(rolledBack);
+        ForceFinalization(committedWeak);
+        ForceFinalization(completedWeak);
+        ForceFinalization(rolledBackWeak);
+
+        Assert.AreEqual(0, committed.CleanupCalls);
+        Assert.AreEqual(0, completed.CleanupCalls);
+        Assert.AreEqual(1, rolledBack.CleanupCalls);
+    }
+
+    [TestMethod]
+    public void ExplicitKnownLiveFailureGetsOneFinalizerRetry()
+    {
+        var value = new TransferDisposable(true, CleanupStage.None);
+        value.CleanupResults.Enqueue(
+            NativeCleanupResult.KnownLiveRetryableFailure(new StageException()));
+        value.CleanupResults.Enqueue(NativeCleanupResult.Freed());
+
+        WeakReference weak = AbandonAfterExplicitRollbackFailure(value);
+        ForceFinalization(weak);
+
+        Assert.AreEqual(2, value.CleanupCalls);
+    }
+
+    [TestMethod]
+    public void ExplicitUnknownFailureDoesNotRetryAndReportsTruthfully()
+    {
+        Action<NativeTransferDiagnostic> previous = NativeTransferDiagnostics.Sink;
+        var diagnostics = new ConcurrentQueue<NativeTransferDiagnostic>();
+        using var received = new ManualResetEventSlim();
+        var value = new TransferDisposable(true, CleanupStage.None);
+        value.CleanupResults.Enqueue(
+            NativeCleanupResult.LivenessUnknownFailure(new StageException()));
+
+        try
+        {
+            NativeTransferDiagnostics.Sink = diagnostic =>
+            {
+                diagnostics.Enqueue(diagnostic);
+                received.Set();
+            };
+
+            WeakReference weak = AbandonAfterExplicitRollbackFailure(value);
+            ForceFinalization(weak);
+
+            Assert.IsTrue(received.Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(diagnostics.TryDequeue(out NativeTransferDiagnostic diagnostic));
+            Assert.AreEqual(NativeTransferState.RollbackFaulted, diagnostic.State);
+            Assert.AreEqual(NativeResourceLiveness.Unknown, diagnostic.NativeLiveness);
+            Assert.AreEqual(1L, diagnostic.RollbackAttemptEpoch);
+            Assert.IsTrue(diagnostic.IsFinalizer);
+            Assert.IsInstanceOfType<NativeTransferCleanupException>(diagnostic.Exception);
+            Assert.AreEqual(1, value.CleanupCalls);
+        }
+        finally
+        {
+            NativeTransferDiagnostics.Sink = previous;
+        }
+    }
+
+    [TestMethod]
+    public void AbandonedPendingKnownLiveFailureReportsAfterOneAttempt()
+    {
+        Action<NativeTransferDiagnostic> previous = NativeTransferDiagnostics.Sink;
+        var diagnostics = new ConcurrentQueue<NativeTransferDiagnostic>();
+        using var received = new ManualResetEventSlim();
+        var value = new TransferDisposable(true, CleanupStage.None);
+        value.CleanupResults.Enqueue(
+            NativeCleanupResult.KnownLiveRetryableFailure(new StageException()));
+
+        try
+        {
+            NativeTransferDiagnostics.Sink = diagnostic =>
+            {
+                diagnostics.Enqueue(diagnostic);
+                received.Set();
+            };
+
+            WeakReference weak = AbandonPendingTicket(value);
+            ForceFinalization(weak);
+
+            Assert.IsTrue(received.Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(diagnostics.TryDequeue(out NativeTransferDiagnostic diagnostic));
+            Assert.AreEqual(NativeTransferState.RollbackFaulted, diagnostic.State);
+            Assert.AreEqual(NativeResourceLiveness.KnownLive, diagnostic.NativeLiveness);
+            Assert.AreEqual(1L, diagnostic.RollbackAttemptEpoch);
+            Assert.AreEqual(1, value.CleanupCalls);
+        }
+        finally
+        {
+            NativeTransferDiagnostics.Sink = previous;
+        }
+    }
+
+    [TestMethod]
+    public void ThrowingTransferDiagnosticSinkCannotEscapeFinalizer()
+    {
+        Action<NativeTransferDiagnostic> previous = NativeTransferDiagnostics.Sink;
+        var value = new TransferDisposable(true, CleanupStage.None)
+        {
+            ThrowFromCleanup = true,
+        };
+
+        try
+        {
+            NativeTransferDiagnostics.Sink = _ => throw new StageException();
+            WeakReference weak = AbandonPendingTicket(value);
+
+            ForceFinalization(weak);
+
+            Assert.AreEqual(1, value.CleanupCalls);
+        }
+        finally
+        {
+            NativeTransferDiagnostics.Sink = previous;
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference AbandonPendingTicket(TransferDisposable value)
+    {
+        NativeTransferTicket ticket = value.CreateTransferTicket();
+        return new WeakReference(ticket);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference AbandonCommittedTicket(TransferDisposable value)
+    {
+        NativeTransferTicket ticket = value.CreateTransferTicket();
+        Assert.IsTrue(ticket.TryCommit());
+        return new WeakReference(ticket);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference AbandonCompletedTicket(TransferDisposable value)
+    {
+        NativeTransferTicket ticket = value.CreateTransferTicket();
+        Assert.IsTrue(ticket.TryComplete(ticket.TicketId));
+        return new WeakReference(ticket);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference AbandonRolledBackTicket(TransferDisposable value)
+    {
+        NativeTransferTicket ticket = value.CreateTransferTicket();
+        Assert.IsTrue(ticket.TryRollback());
+        return new WeakReference(ticket);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference AbandonAfterExplicitRollbackFailure(TransferDisposable value)
+    {
+        NativeTransferTicket ticket = value.CreateTransferTicket();
+        Assert.ThrowsException<NativeTransferCleanupException>(() => ticket.TryRollback());
+        return new WeakReference(ticket);
+    }
+
+    private static void ForceFinalization(WeakReference weak)
+    {
+        for (int attempt = 0; attempt < 10 && weak.IsAlive; attempt++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            Thread.Sleep(10);
+        }
+
+        Assert.IsFalse(weak.IsAlive);
     }
 
     private static bool Race(Barrier barrier, Func<bool> action)
@@ -264,12 +493,17 @@ public class NativeTransferTicketTests
     {
         private readonly bool _supportsTransfer;
         private readonly CleanupStage _requiredCleanup;
+        private readonly bool _finalizerSafe;
 
-        public TransferDisposable(bool supportsTransfer, CleanupStage requiredCleanup)
+        public TransferDisposable(
+            bool supportsTransfer,
+            CleanupStage requiredCleanup,
+            bool finalizerSafe = true)
             : base(new IntPtr(0x1234))
         {
             _supportsTransfer = supportsTransfer;
             _requiredCleanup = requiredCleanup;
+            _finalizerSafe = finalizerSafe;
         }
 
         public Queue<NativeCleanupResult> CleanupResults { get; } = new();
@@ -280,7 +514,11 @@ public class NativeTransferTicketTests
 
         public int CleanupCalls { get; private set; }
 
+        public bool ThrowFromCleanup { get; set; }
+
         protected override bool SupportsNativeTransfer => _supportsTransfer;
+
+        protected override bool IsTransferRollbackFinalizerSafe => _finalizerSafe;
 
         protected override CleanupStage RequiredCleanupBeforeTransfer => _requiredCleanup;
 
@@ -293,6 +531,8 @@ public class NativeTransferTicketTests
         protected override NativeCleanupResult CleanupNativeResource(IntPtr nativePointer)
         {
             CleanupCalls++;
+            if (ThrowFromCleanup)
+                throw new StageException();
             return CleanupResults.Count == 0 ? NativeCleanupResult.Freed() : CleanupResults.Dequeue();
         }
     }

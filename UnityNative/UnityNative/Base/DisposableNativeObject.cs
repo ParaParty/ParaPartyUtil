@@ -9,6 +9,12 @@ namespace Paraparty.UnityNative.Base
     /// </summary>
     public abstract class DisposableNativeObject : DisposableObject, INativeOperationSource
     {
+        private enum PointerPublicationState
+        {
+            Unpublished = 0,
+            Published = 1,
+        }
+
         private static long _lastOwnerId;
 
         private readonly object _operationLock = new object();
@@ -24,22 +30,38 @@ namespace Paraparty.UnityNative.Base
         private long _lastLeaseToken;
 
         protected DisposableNativeObject()
-            : this(IntPtr.Zero, false, NativeOwnershipKind.Owned, NativeAccessPolicy.Concurrent)
+            : this(
+                IntPtr.Zero,
+                PointerPublicationState.Unpublished,
+                NativeOwnershipKind.Owned,
+                NativeAccessPolicy.Concurrent)
         {
         }
 
         protected DisposableNativeObject(IntPtr nativePointer)
-            : this(nativePointer, true, NativeOwnershipKind.Owned, NativeAccessPolicy.Concurrent)
+            : this(
+                nativePointer,
+                PointerPublicationState.Published,
+                NativeOwnershipKind.Owned,
+                NativeAccessPolicy.Concurrent)
         {
         }
 
         protected DisposableNativeObject(NativeOwnershipKind ownership)
-            : this(IntPtr.Zero, false, ownership, NativeAccessPolicy.Concurrent)
+            : this(
+                IntPtr.Zero,
+                PointerPublicationState.Unpublished,
+                ownership,
+                NativeAccessPolicy.Concurrent)
         {
         }
 
         protected DisposableNativeObject(IntPtr nativePointer, NativeOwnershipKind ownership)
-            : this(nativePointer, true, ownership, NativeAccessPolicy.Concurrent)
+            : this(
+                nativePointer,
+                PointerPublicationState.Published,
+                ownership,
+                NativeAccessPolicy.Concurrent)
         {
         }
 
@@ -47,13 +69,13 @@ namespace Paraparty.UnityNative.Base
             IntPtr nativePointer,
             NativeOwnershipKind ownership,
             NativeAccessPolicy accessPolicy)
-            : this(nativePointer, true, ownership, accessPolicy)
+            : this(nativePointer, PointerPublicationState.Published, ownership, accessPolicy)
         {
         }
 
         private DisposableNativeObject(
             IntPtr nativePointer,
-            bool pointerPublished,
+            PointerPublicationState pointerPublicationState,
             NativeOwnershipKind ownership,
             NativeAccessPolicy accessPolicy)
             : base(ownership)
@@ -68,7 +90,7 @@ namespace Paraparty.UnityNative.Base
             _creatingThreadId = Thread.CurrentThread.ManagedThreadId;
             _accessPolicy = accessPolicy;
             _nativePointer = nativePointer;
-            _pointerPublished = pointerPublished;
+            _pointerPublished = pointerPublicationState == PointerPublicationState.Published;
         }
 
         public long NativeOperationOwnerId => _operationOwnerId;
@@ -200,12 +222,12 @@ namespace Paraparty.UnityNative.Base
             return CleanupStageResult.Succeeded();
         }
 
-        protected override void ValidateExplicitDisposeThread()
+        protected sealed override void ValidateExplicitDisposeThread()
         {
             ValidateOperationThread();
         }
 
-        protected override void CloseOperationAdmissionAndDrain()
+        protected sealed override void CloseOperationAdmissionAndDrain()
         {
             lock (_operationLock)
             {

@@ -171,7 +171,7 @@ namespace Paraparty.UnityNative.Base
             }
 
             if (ownsAttempt)
-                ExecuteAttempt(attempt, true);
+                ExecuteAttempt(attempt, CleanupStage.All, true);
             else
                 WaitForAttempt(attempt);
 
@@ -183,15 +183,39 @@ namespace Paraparty.UnityNative.Base
 
         ~DisposableObject()
         {
+            Exception failure = null;
             try
             {
-                ExecuteFinalizerAttempt();
+                failure = ExecuteFinalizerAttempt();
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+
+            try
+            {
+                NativeLifecycleState state = LifecycleState;
+                if (state != NativeLifecycleState.Disposed && state != NativeLifecycleState.Transferred)
+                {
+                    NativeCleanupDiagnostics.ReportNoThrow(new NativeCleanupDiagnostic(
+                        GetType().FullName,
+                        state,
+                        CompletedCleanupStages,
+                        Ownership,
+                        NativeLiveness,
+                        AttemptEpoch,
+                        true,
+                        failure));
+                }
             }
             catch
             {
-                // A finalizer must never terminate the process. Detailed diagnostics are added later.
+                // The finalizer must never allow either cleanup or telemetry to escape.
             }
         }
+
+        protected virtual CleanupStage FinalizerSafeStages => CleanupStage.None;
 
         protected virtual CleanupStageResult CleanupManagedResources()
         {
@@ -308,25 +332,46 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
-        private void ExecuteAttempt(DisposeAttempt attempt, bool includeManagedStage)
+        private void ExecuteAttempt(
+            DisposeAttempt attempt,
+            CleanupStage allowedStages,
+            bool closeOperationAdmission)
         {
-            CloseOperationAdmissionAndDrain();
+            try
+            {
+                if (closeOperationAdmission)
+                    CloseOperationAdmissionAndDrain();
 
-            if (includeManagedStage)
-                ExecuteStage(CleanupStage.Managed, InvokeManagedCleanup);
+                allowedStages &= CleanupStage.All;
+                if ((allowedStages & CleanupStage.Managed) != 0)
+                    ExecuteStage(CleanupStage.Managed, InvokeManagedCleanup);
 
-            ExecuteStage(CleanupStage.CallbackFence, InvokeCallbackFence);
+                if ((allowedStages & CleanupStage.CallbackFence) != 0)
+                    ExecuteStage(CleanupStage.CallbackFence, InvokeCallbackFence);
 
-            if (IsStageComplete(CleanupStage.CallbackFence))
-                ExecuteNativeStage();
+                if ((allowedStages & CleanupStage.Native) != 0 &&
+                    IsStageComplete(CleanupStage.CallbackFence))
+                {
+                    ExecuteNativeStage();
+                }
 
-            if (IsStageComplete(CleanupStage.Native))
-                ExecuteStage(CleanupStage.OwnerUnpublish, InvokeOwnerUnpublish);
-
-            CompleteAttempt(attempt);
+                if ((allowedStages & CleanupStage.OwnerUnpublish) != 0 &&
+                    IsStageComplete(CleanupStage.Native))
+                {
+                    ExecuteStage(CleanupStage.OwnerUnpublish, InvokeOwnerUnpublish);
+                }
+            }
+            catch (Exception exception)
+            {
+                RecordUnexpectedAttemptFailure(exception);
+            }
+            finally
+            {
+                CompleteAttempt(attempt);
+            }
         }
 
-        private void ExecuteFinalizerAttempt()
+        private Exception ExecuteFinalizerAttempt()
         {
             DisposeAttempt attempt;
 
@@ -334,16 +379,36 @@ namespace Paraparty.UnityNative.Base
             {
                 if (_lifecycleState == NativeLifecycleState.Disposed ||
                     _lifecycleState == NativeLifecycleState.Transferred ||
-                    _lifecycleState == NativeLifecycleState.Disposing ||
-                    _stableFailure != null)
+                    _lifecycleState == NativeLifecycleState.Disposing)
                 {
-                    return;
+                    return null;
                 }
+
+                if (_stableFailure != null)
+                    return _stableFailure;
 
                 attempt = StartAttemptLocked();
             }
 
-            ExecuteAttempt(attempt, false);
+            // An unreachable lease can still leave a token in the owner. Finalizers must
+            // never wait for operation-drain cooperation from unreachable managed state.
+            ExecuteAttempt(attempt, FinalizerSafeStages, false);
+            return attempt.Failure;
+        }
+
+        private void RecordUnexpectedAttemptFailure(Exception exception)
+        {
+            lock (_lifecycleLock)
+            {
+                foreach (CleanupStage stage in OrderedStages)
+                {
+                    if ((_completedStages & stage) != 0)
+                        continue;
+
+                    _stageFailures[stage] = CleanupStageResult.NonRetryableFailure(exception);
+                    return;
+                }
+            }
         }
 
         private void ExecuteStage(CleanupStage stage, Func<CleanupStageResult> cleanup)

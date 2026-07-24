@@ -166,6 +166,11 @@ public class NativeOperationLeaseTests
             field.FieldType == typeof(IntPtr) &&
             (field.IsPublic || field.IsFamily || field.IsFamilyOrAssembly)));
         Assert.IsNull(type.Assembly.GetType("Paraparty.UnityNative.Base.INativePtrHolder"));
+        Assert.IsNull(typeof(DisposableObject).GetProperty("IsEnabledDispose", reusableSurface));
+        Assert.IsFalse(typeof(DisposableObject).GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Any(constructor => constructor.GetParameters().Any(parameter => parameter.ParameterType == typeof(bool))));
+        Assert.IsFalse(type.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Any(constructor => constructor.GetParameters().Any(parameter => parameter.ParameterType == typeof(bool))));
         Assert.AreEqual(typeof(IntPtr), typeof(NativeOperationLease).GetProperty("Pointer")?.PropertyType);
     }
 

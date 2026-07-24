@@ -3,46 +3,9 @@ using System.Threading;
 
 namespace Paraparty.UnityNative.Base
 {
-    public enum NativeTransferState
-    {
-        Pending = 0,
-        Committed = 1,
-        RollingBack = 2,
-        RollbackFaulted = 3,
-        RolledBack = 4,
-        Completed = 5,
-    }
-
-    public sealed class NativeTransferCleanupException : Exception
-    {
-        internal NativeTransferCleanupException(
-            long ticketId,
-            long rollbackAttemptEpoch,
-            NativeResourceLiveness nativeLiveness,
-            bool isRetryable,
-            Exception innerException)
-            : base(
-                "Native transfer ticket " + ticketId +
-                " rollback attempt " + rollbackAttemptEpoch +
-                " failed. NativeLiveness=" + nativeLiveness +
-                ", Retryable=" + isRetryable + ".",
-                innerException)
-        {
-            TicketId = ticketId;
-            RollbackAttemptEpoch = rollbackAttemptEpoch;
-            NativeLiveness = nativeLiveness;
-            IsRetryable = isRetryable;
-        }
-
-        public long TicketId { get; }
-
-        public long RollbackAttemptEpoch { get; }
-
-        public NativeResourceLiveness NativeLiveness { get; }
-
-        public bool IsRetryable { get; }
-    }
-
+    /// <summary>
+    /// Exclusively arbitrates commit, rollback, and native completion after pointer transfer.
+    /// </summary>
     public sealed class NativeTransferTicket : IDisposable
     {
         private static long _lastTicketId;

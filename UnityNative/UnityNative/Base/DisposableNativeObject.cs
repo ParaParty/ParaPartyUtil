@@ -12,7 +12,9 @@ namespace Paraparty.UnityNative.Base
     /// Construction either publishes one pointer immediately or leaves it unpublished for a single later
     /// <see cref="PublishNativePointer"/> call. The pointer is never exposed as a reusable property. Each
     /// native operation must call <see cref="EnterOperation"/> and hold the returned lease across the complete
-    /// P/Invoke interval. Disposal from the same logical execution context as an active lease is rejected
+    /// P/Invoke interval. A native-to-managed adapter must enter <see cref="EnterNativeCallbackExecution"/>
+    /// before invoking callback consumers, including callbacks on threads without managed execution-context
+    /// flow. Disposal from the same logical execution context as an active lease or callback scope is rejected
     /// before lifecycle arbitration; external disposal closes admission, waits for every lease token, executes
     /// staged cleanup, and unpublishes the pointer only after the native stage succeeds.
     /// </para>
@@ -187,6 +189,27 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>
+        /// Marks the current native-to-managed callback execution for this wrapper before consumer code runs.
+        /// </summary>
+        /// <returns>An opaque scope that removes only this callback marker when disposed.</returns>
+        /// <remarks>
+        /// <para>
+        /// Derived wrappers should expose this only to their callback adapters and hold the returned scope
+        /// across the complete callback body. Entry is allowed on a native callback thread even when ordinary
+        /// operations are creating-thread confined. The scope grants no pointer access and does not replace
+        /// callback admission, native deregistration, exception containment, or an in-flight callback fence.
+        /// </para>
+        /// <para>
+        /// The returned scope must be disposed in a <see langword="finally"/> block before the callback returns
+        /// to native code.
+        /// </para>
+        /// </remarks>
+        protected NativeCallbackExecutionScope EnterNativeCallbackExecution()
+        {
+            return new NativeCallbackExecutionScope(_operationOwnerId, LifecycleEpoch);
+        }
+
         /// <summary>Moves the published pointer into a new exclusive transfer ticket.</summary>
         /// <returns>The ticket that becomes the sole native owner.</returns>
         /// <exception cref="NotSupportedException"><see cref="SupportsNativeTransfer"/> is false.</exception>
@@ -328,12 +351,14 @@ namespace Paraparty.UnityNative.Base
         /// <inheritdoc/>
         protected sealed override void ValidateExplicitDisposeThread()
         {
-            ValidateOperationThread();
             if (NativeOperationExecutionContext.ContainsOwner(_operationOwnerId))
             {
                 throw new InvalidOperationException(
-                    "A native wrapper cannot be disposed from an execution context that holds one of its operation leases.");
+                    "A native wrapper cannot be disposed from an execution context that holds one of its " +
+                    "operation leases or native callback scopes.");
             }
+
+            ValidateOperationThread();
         }
 
         /// <inheritdoc/>

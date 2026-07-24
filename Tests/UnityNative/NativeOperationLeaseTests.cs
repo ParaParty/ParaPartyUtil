@@ -247,6 +247,187 @@ public class NativeOperationLeaseTests
     }
 
     [TestMethod]
+    public void CallbackScopeWithoutLeaseObjectBreaksNoFlowNativeWaitCycle()
+    {
+        var value = new LeaseDisposable(new IntPtr(1));
+        NativeOperationLease callerLease = value.EnterOperation();
+        Assert.AreEqual(new IntPtr(1), callerLease.Pointer);
+
+        Task<Exception> callback = StartNoFlowCallback(value);
+        if (!callback.Wait(TimeSpan.FromSeconds(5)))
+        {
+            callerLease.Dispose();
+            callback.Wait(TimeSpan.FromSeconds(5));
+            Assert.Fail("The callback tried to drain the native caller's lease.");
+        }
+
+        Assert.IsInstanceOfType<InvalidOperationException>(callback.Result);
+        StringAssert.Contains(callback.Result.Message, "callback scopes");
+        Assert.AreEqual(NativeLifecycleState.Active, value.LifecycleState);
+
+        using (NativeOperationLease next = value.EnterOperation())
+        {
+            Assert.AreEqual(new IntPtr(1), next.Pointer);
+        }
+
+        callerLease.Dispose();
+        value.Dispose();
+        Assert.AreEqual(NativeLifecycleState.Disposed, value.LifecycleState);
+        Assert.AreEqual(1, value.NativeCleanupCalls);
+    }
+
+    [TestMethod]
+    public void NestedCallbackScopesRejectDisposeUntilOutermostExit()
+    {
+        var value = new LeaseDisposable(new IntPtr(1));
+        NativeCallbackExecutionScope outer = value.EnterCallback();
+        NativeCallbackExecutionScope inner = value.EnterCallback();
+
+        Assert.ThrowsException<InvalidOperationException>(value.Dispose);
+        inner.Dispose();
+        Assert.ThrowsException<InvalidOperationException>(value.Dispose);
+        outer.Dispose();
+
+        value.Dispose();
+        Assert.AreEqual(NativeLifecycleState.Disposed, value.LifecycleState);
+    }
+
+    [TestMethod]
+    public void CallbackScopeFlowsToLogicalChildContext()
+    {
+        var value = new LeaseDisposable(new IntPtr(1));
+        using (NativeCallbackExecutionScope callbackScope = value.EnterCallback())
+        {
+            Task<Exception> child = Task.Run(() => CaptureException(value.Dispose));
+
+            Assert.IsTrue(child.Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsInstanceOfType<InvalidOperationException>(child.Result);
+            Assert.AreEqual(NativeLifecycleState.Active, value.LifecycleState);
+        }
+
+        value.Dispose();
+        Assert.AreEqual(1, value.NativeCleanupCalls);
+    }
+
+    [TestMethod]
+    public void DeactivatedCallbackMarkerDoesNotRejectInheritedChildContext()
+    {
+        var value = new LeaseDisposable(new IntPtr(1));
+        var releaseChild = new ManualResetEventSlim(false);
+        NativeCallbackExecutionScope callbackScope = value.EnterCallback();
+        Task<Exception> child = Task.Run(() =>
+        {
+            releaseChild.Wait(TimeSpan.FromSeconds(5));
+            return CaptureException(value.Dispose);
+        });
+
+        callbackScope.Dispose();
+        releaseChild.Set();
+
+        Assert.IsTrue(child.Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsNull(child.Result);
+        Assert.AreEqual(NativeLifecycleState.Disposed, value.LifecycleState);
+    }
+
+    [TestMethod]
+    public void CallbackScopeRejectsOnlyItsOwner()
+    {
+        var first = new LeaseDisposable(new IntPtr(1));
+        var second = new LeaseDisposable(new IntPtr(2));
+
+        using (NativeCallbackExecutionScope callbackScope = first.EnterCallback())
+        {
+            second.Dispose();
+            Assert.AreEqual(NativeLifecycleState.Disposed, second.LifecycleState);
+            Assert.ThrowsException<InvalidOperationException>(first.Dispose);
+            Assert.AreEqual(NativeLifecycleState.Active, first.LifecycleState);
+        }
+
+        first.Dispose();
+        Assert.AreEqual(NativeLifecycleState.Disposed, first.LifecycleState);
+    }
+
+    [TestMethod]
+    public void CallbackScopeCanBeDisposedFromAnotherThread()
+    {
+        var value = new LeaseDisposable(new IntPtr(1));
+        NativeCallbackExecutionScope callbackScope = value.EnterCallback();
+        Task release;
+
+        using (ExecutionContext.SuppressFlow())
+        {
+            release = Task.Run(callbackScope.Dispose);
+        }
+
+        Assert.IsTrue(release.Wait(TimeSpan.FromSeconds(5)));
+        callbackScope.Dispose();
+        value.Dispose();
+        Assert.AreEqual(NativeLifecycleState.Disposed, value.LifecycleState);
+    }
+
+    [TestMethod]
+    public void ForeignCallbackScopeDoesNotGrantConfinedOperationAccess()
+    {
+        var value = new LeaseDisposable(
+            new IntPtr(1),
+            NativeAccessPolicy.CreatingThreadConfined);
+        Task<Exception[]> callback;
+
+        using (ExecutionContext.SuppressFlow())
+        {
+            callback = Task.Run(() =>
+            {
+                using (NativeCallbackExecutionScope callbackScope = value.EnterCallback())
+                {
+                    Exception enterFailure = CaptureException(() =>
+                    {
+                        using NativeOperationLease operation = value.EnterOperation();
+                    });
+                    Exception disposeFailure = CaptureException(value.Dispose);
+                    return new[] { enterFailure, disposeFailure };
+                }
+            });
+        }
+
+        Assert.IsTrue(callback.Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsInstanceOfType<InvalidOperationException>(callback.Result[0]);
+        Assert.IsInstanceOfType<InvalidOperationException>(callback.Result[1]);
+        StringAssert.Contains(callback.Result[1].Message, "callback scopes");
+        Assert.AreEqual(NativeLifecycleState.Active, value.LifecycleState);
+
+        value.Dispose();
+        Assert.AreEqual(NativeLifecycleState.Disposed, value.LifecycleState);
+    }
+
+    [TestMethod]
+    public void CallbackExceptionStillDeactivatesScopeWithUsing()
+    {
+        var value = new LeaseDisposable(new IntPtr(1));
+
+        Assert.ThrowsException<StageException>(() =>
+        {
+            using NativeCallbackExecutionScope callbackScope = value.EnterCallback();
+            throw new StageException();
+        });
+
+        value.Dispose();
+        Assert.AreEqual(NativeLifecycleState.Disposed, value.LifecycleState);
+    }
+
+    [TestMethod]
+    public void AbandonedCallbackScopeFinalizerDeactivatesMarker()
+    {
+        var value = new LeaseDisposable(new IntPtr(1));
+        WeakReference weak = AbandonCallbackScope(value);
+
+        ForceFinalization(weak);
+
+        value.Dispose();
+        Assert.AreEqual(NativeLifecycleState.Disposed, value.LifecycleState);
+        Assert.AreEqual(1, value.NativeCleanupCalls);
+    }
+
+    [TestMethod]
     public void LeaseCanStillBeReleasedFromAContextWithoutExecutionFlow()
     {
         var value = new LeaseDisposable(new IntPtr(1));
@@ -281,6 +462,39 @@ public class NativeOperationLeaseTests
         Assert.IsFalse(type.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic)
             .Any(constructor => constructor.GetParameters().Any(parameter => parameter.ParameterType == typeof(bool))));
         Assert.AreEqual(typeof(IntPtr), typeof(NativeOperationLease).GetProperty("Pointer")?.PropertyType);
+        Assert.AreEqual(0, typeof(NativeCallbackExecutionScope).GetConstructors(BindingFlags.Instance | BindingFlags.Public).Length);
+    }
+
+    private static Task<Exception> StartNoFlowCallback(LeaseDisposable value)
+    {
+        using (ExecutionContext.SuppressFlow())
+        {
+            return Task.Run(() =>
+            {
+                using (NativeCallbackExecutionScope callbackScope = value.EnterCallback())
+                {
+                    return CaptureException(value.Dispose);
+                }
+            });
+        }
+    }
+
+    private static WeakReference AbandonCallbackScope(LeaseDisposable value)
+    {
+        var scope = value.EnterCallback();
+        return new WeakReference(scope);
+    }
+
+    private static void ForceFinalization(WeakReference weak)
+    {
+        for (int attempt = 0; attempt < 10 && weak.IsAlive; attempt++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+        }
+
+        Assert.IsFalse(weak.IsAlive, "The callback scope did not finalize within the bounded collection loop.");
     }
 
     private static Exception CaptureException(Action action)
@@ -317,6 +531,11 @@ public class NativeOperationLeaseTests
         public void Publish(IntPtr pointer)
         {
             PublishNativePointer(pointer);
+        }
+
+        public NativeCallbackExecutionScope EnterCallback()
+        {
+            return EnterNativeCallbackExecution();
         }
 
         protected override NativeCleanupResult CleanupNativeResource(IntPtr nativePointer)

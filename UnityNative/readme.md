@@ -39,6 +39,8 @@ External disposal closes admission before waiting for every active lease. Dispos
 
 Use `NativeOperationGroup.Acquire(...)` for operations involving several wrappers. It deduplicates owners and acquires them by monotonic owner ID to avoid ABBA ordering. Wrappers that require thread affinity can select `NativeAccessPolicy.CreatingThreadConfined`.
 
+Native callbacks may arrive on a thread without managed `ExecutionContext` flow and without the operation lease held by the native caller. A derived wrapper must enter its protected `EnterNativeCallbackExecution()` scope before an adapter invokes callback consumer code. Disposal from that scope fails before lifecycle arbitration, so a callback cannot wait for the native caller's lease while the caller waits for the callback to return. The opaque scope grants no pointer access and does not replace callback admission, native deregistration, exception containment, or the callback-drain fence required before native destruction.
+
 ## Exclusive transfer
 
 Transfer is disabled by default. A wrapper must explicitly opt in, prove that it has no cleanup work which must remain with the wrapper, and override `IsTransferRollbackFinalizerSafe` only when rollback is valid on the finalizer thread. `CreateTransferTicket()` closes operation admission, requires zero active leases, runs the transfer preparation fence, constructs an unarmed ticket, then moves the pointer and makes the wrapper terminal as `Transferred`. Ticket construction failure therefore leaves ownership with the active wrapper.
@@ -63,6 +65,7 @@ This lifecycle is a deliberate source break. Consumers must migrate before adopt
 | Override `DisposeManaged()` | Return `CleanupStageResult` from `CleanupManagedResources()` |
 | Override `DisposeUnmanaged()` | Return an explicit `NativeCleanupResult` from `CleanupNativeResource(IntPtr)` |
 | Read/check pointer before a P/Invoke | Keep one lease alive across the entire P/Invoke |
+| Invoke consumer code from a native callback | Enter the wrapper's opaque callback execution scope in the adapter before consumer code |
 | Hand a pointer to another native owner | Explicit transfer opt-in, finalizer-safe rollback proof, and `NativeTransferTicket` |
 
 Old consumers and the new base are not compatible. There is no obsolete raw-pointer getter or mutable ownership shim because either would let unsafe consumers continue to compile.

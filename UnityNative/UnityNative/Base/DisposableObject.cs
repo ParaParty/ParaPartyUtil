@@ -131,6 +131,8 @@ namespace Paraparty.UnityNative.Base
 
         public void Dispose()
         {
+            ValidateExplicitDisposeThread();
+
             DisposeAttempt attempt;
             bool ownsAttempt;
 
@@ -202,6 +204,14 @@ namespace Paraparty.UnityNative.Base
         protected virtual CleanupStageResult UnpublishOwner()
         {
             return CleanupStageResult.Succeeded();
+        }
+
+        protected virtual void ValidateExplicitDisposeThread()
+        {
+        }
+
+        protected virtual void CloseOperationAdmissionAndDrain()
+        {
         }
 
         protected internal GCHandle AllocGCHandle(object obj)
@@ -276,6 +286,8 @@ namespace Paraparty.UnityNative.Base
 
         private void ExecuteAttempt(DisposeAttempt attempt, bool includeManagedStage)
         {
+            CloseOperationAdmissionAndDrain();
+
             if (includeManagedStage)
                 ExecuteStage(CleanupStage.Managed, InvokeManagedCleanup);
 

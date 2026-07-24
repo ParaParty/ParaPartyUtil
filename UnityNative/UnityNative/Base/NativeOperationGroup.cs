@@ -8,6 +8,11 @@ namespace Paraparty.UnityNative.Base
     /// <summary>
     /// Acquires several operation leases in deterministic owner order.
     /// </summary>
+    /// <remarks>
+    /// Sources are deduplicated by owner identity and acquired in ascending identity order to prevent
+    /// ABBA lock ordering between multi-owner native calls. If any acquisition fails, leases already
+    /// acquired by the group are released in reverse order before the failure is rethrown.
+    /// </remarks>
     public sealed class NativeOperationGroup : IDisposable
     {
         private IReadOnlyList<NativeOperationLease> _leases;
@@ -17,6 +22,8 @@ namespace Paraparty.UnityNative.Base
             _leases = leases;
         }
 
+        /// <summary>Gets the acquired leases in deterministic owner order.</summary>
+        /// <exception cref="ObjectDisposedException">The group has been disposed.</exception>
         public IReadOnlyList<NativeOperationLease> Leases
         {
             get
@@ -28,6 +35,13 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>Acquires one lease for each distinct source in stable owner order.</summary>
+        /// <param name="sources">The operation sources participating in one native operation.</param>
+        /// <returns>A group that owns every acquired lease.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="sources"/> is <see langword="null"/>.</exception>
+        /// <exception cref="ArgumentException">
+        /// A source is null, has a non-positive owner ID, or conflicts with another source using the same ID.
+        /// </exception>
         public static NativeOperationGroup Acquire(params INativeOperationSource[] sources)
         {
             if (sources == null)
@@ -73,6 +87,7 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>Releases every acquired lease in reverse owner order. Repeated calls are no-ops.</summary>
         public void Dispose()
         {
             IReadOnlyList<NativeOperationLease> leases = Interlocked.Exchange(ref _leases, null);

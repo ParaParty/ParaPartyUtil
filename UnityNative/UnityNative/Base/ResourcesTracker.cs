@@ -8,6 +8,13 @@ namespace Paraparty.UnityNative.Base
     /// <summary>
     /// Tracks native owners strongly and disposes all of them in registration order.
     /// </summary>
+    /// <remarks>
+    /// Disposal closes registration, snapshots the ordered registry, and calls owners without holding
+    /// the tracker lock. Every owner is attempted even after an earlier failure. Terminal owners are
+    /// removed; nonterminal owners remain strongly referenced for an explicit later attempt. Concurrent
+    /// callers wait for and observe the same aggregate result, while reentrant disposal on the attempt
+    /// thread returns to avoid deadlock.
+    /// </remarks>
     public sealed class ResourcesTracker : IDisposable
     {
         private sealed class ReferenceComparer : IEqualityComparer<DisposableObject>
@@ -48,6 +55,12 @@ namespace Paraparty.UnityNative.Base
         private bool _isDisposed;
         private TrackerAttempt _currentAttempt;
 
+        /// <summary>Registers one owner by reference identity and returns it unchanged.</summary>
+        /// <typeparam name="TNativeObject">The disposable owner type.</typeparam>
+        /// <param name="obj">The owner to retain until terminal cleanup.</param>
+        /// <returns><paramref name="obj"/>.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="obj"/> is <see langword="null"/>.</exception>
+        /// <exception cref="ObjectDisposedException">Registration has closed.</exception>
         public TNativeObject T<TNativeObject>(TNativeObject obj)
             where TNativeObject : DisposableObject
         {
@@ -66,6 +79,12 @@ namespace Paraparty.UnityNative.Base
             return obj;
         }
 
+        /// <summary>Registers each owner in array order and returns the array unchanged.</summary>
+        /// <typeparam name="TNativeObject">The disposable owner type.</typeparam>
+        /// <param name="objects">The owners to retain until terminal cleanup.</param>
+        /// <returns><paramref name="objects"/>.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="objects"/> is <see langword="null"/>.</exception>
+        /// <exception cref="ObjectDisposedException">Registration closes before every owner is registered.</exception>
         public TNativeObject[] T<TNativeObject>(TNativeObject[] objects)
             where TNativeObject : DisposableObject
         {
@@ -78,6 +97,8 @@ namespace Paraparty.UnityNative.Base
             return objects;
         }
 
+        /// <summary>Attempts every retained owner and removes only owners that reach a terminal state.</summary>
+        /// <exception cref="AggregateException">One or more owners remain nonterminal after cleanup.</exception>
         public void Dispose()
         {
             TrackerAttempt attempt;

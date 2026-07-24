@@ -34,16 +34,22 @@ namespace Paraparty.UnityNative.Base
             IsRetryable = isRetryable;
         }
 
+        /// <summary>Gets the monotonic identity of the cleanup attempt.</summary>
         public long AttemptEpoch { get; }
 
+        /// <summary>Gets the lifecycle state recorded when the attempt completed.</summary>
         public NativeLifecycleState LifecycleState { get; }
 
+        /// <summary>Gets the stages completed across this and earlier attempts.</summary>
         public CleanupStage CompletedStages { get; }
 
+        /// <summary>Gets the stages that reported failures during the attempt.</summary>
         public CleanupStage FailedStages { get; }
 
+        /// <summary>Gets the last proven native-resource liveness.</summary>
         public NativeResourceLiveness NativeLiveness { get; }
 
+        /// <summary>Gets whether a later disposal attempt may safely retry incomplete stages.</summary>
         public bool IsRetryable { get; }
 
         private static string CreateMessage(

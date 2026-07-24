@@ -6,6 +6,15 @@ namespace Paraparty.UnityNative.Base
     /// <summary>
     /// Exclusively arbitrates commit, rollback, and native completion after pointer transfer.
     /// </summary>
+    /// <remarks>
+    /// A ticket starts in <see cref="NativeTransferState.Pending"/> as the sole owner of the transferred
+    /// pointer. Commit hands ownership to the receiving native system; rollback destroys the still-pending
+    /// resource; completion records that the receiving system destroyed it. These outcomes arbitrate under
+    /// one lock so only one ownership path wins. Completion must present the monotonic ticket ID, preventing
+    /// a stale native callback from completing a newer transfer even when an allocator reuses the same pointer.
+    /// Rollback may be retried only after an oracle proves the resource remains live. Unknown liveness is a
+    /// stable fault because a second destroy could double-free the resource.
+    /// </remarks>
     public sealed class NativeTransferTicket : IDisposable
     {
         private static long _lastTicketId;
@@ -30,8 +39,10 @@ namespace Paraparty.UnityNative.Base
             TicketId = NextTicketId();
         }
 
+        /// <summary>Gets the process-wide monotonic identity used to reject stale completions.</summary>
         public long TicketId { get; }
 
+        /// <summary>Gets the current transfer arbitration state.</summary>
         public NativeTransferState State
         {
             get
@@ -43,6 +54,7 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>Gets the last proven liveness of the transferred native resource.</summary>
         public NativeResourceLiveness NativeLiveness
         {
             get
@@ -54,6 +66,7 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>Gets the number of rollback attempts started by this ticket.</summary>
         public long RollbackAttemptEpoch
         {
             get
@@ -65,6 +78,8 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>Gets the transferred pointer while the ticket remains pending.</summary>
+        /// <exception cref="InvalidOperationException">The ticket is no longer pending.</exception>
         public IntPtr Pointer
         {
             get
@@ -78,6 +93,8 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>Commits pending ownership to the receiving native system.</summary>
+        /// <returns><see langword="true"/> when this call won commit arbitration; otherwise, <see langword="false"/>.</returns>
         public bool TryCommit()
         {
             lock (_ticketLock)
@@ -90,6 +107,9 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>Records native completion when the supplied identity matches this ticket.</summary>
+        /// <param name="ticketId">The ticket identity returned to the receiving native system.</param>
+        /// <returns><see langword="true"/> when this call won completion arbitration; otherwise, <see langword="false"/>.</returns>
         public bool TryComplete(long ticketId)
         {
             if (ticketId != TicketId)
@@ -109,6 +129,11 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>Attempts to destroy a still-pending transferred resource.</summary>
+        /// <returns><see langword="true"/> when rollback freed the resource; otherwise, <see langword="false"/>.</returns>
+        /// <exception cref="NativeTransferCleanupException">
+        /// Cleanup failed. Inspect <see cref="NativeTransferCleanupException.IsRetryable"/> before another attempt.
+        /// </exception>
         public bool TryRollback()
         {
             long attemptEpoch;
@@ -157,6 +182,8 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>Rolls back pending ownership. Committed or terminal tickets are left unchanged.</summary>
+        /// <exception cref="NativeTransferCleanupException">Pending rollback cleanup failed.</exception>
         public void Dispose()
         {
             TryRollback();

@@ -7,6 +7,27 @@ namespace Paraparty.UnityNative.Base
     /// <summary>
     /// Staged cleanup base for a wrapper around a private native pointer.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Construction either publishes one pointer immediately or leaves it unpublished for a single later
+    /// <see cref="PublishNativePointer"/> call. The pointer is never exposed as a reusable property. Each
+    /// native operation must call <see cref="EnterOperation"/> and hold the returned lease across the complete
+    /// P/Invoke interval. Disposal closes admission, waits for every lease token, executes staged cleanup,
+    /// and unpublishes the pointer only after the native stage succeeds.
+    /// </para>
+    /// <para>
+    /// Lease identity combines a process-wide monotonic owner ID, lifecycle epoch, and per-owner monotonic
+    /// token. These values are never reused, so an old release cannot affect a newer operation and pointer
+    /// address reuse cannot create an ABA identity match. Creating-thread confinement adds a thread invariant
+    /// without bypassing lease admission.
+    /// </para>
+    /// <para>
+    /// Transfer is disabled unless a derived wrapper explicitly opts in and declares no cleanup stages that
+    /// must remain with the wrapper. Transfer closes admission, requires zero active leases, runs preparation,
+    /// moves the pointer to one <see cref="NativeTransferTicket"/>, and makes the wrapper terminal. Commit,
+    /// rollback, and completion are then arbitrated exclusively by that ticket.
+    /// </para>
+    /// </remarks>
     public abstract class DisposableNativeObject : DisposableObject, INativeOperationSource
     {
         private enum PointerPublicationState
@@ -29,6 +50,7 @@ namespace Paraparty.UnityNative.Base
         private bool _transferInProgress;
         private long _lastLeaseToken;
 
+        /// <summary>Initializes an owned wrapper whose pointer will be published once after construction starts.</summary>
         protected DisposableNativeObject()
             : this(
                 IntPtr.Zero,
@@ -38,6 +60,8 @@ namespace Paraparty.UnityNative.Base
         {
         }
 
+        /// <summary>Initializes an owned wrapper with an immediately published pointer.</summary>
+        /// <param name="nativePointer">The pointer protected by operation leases.</param>
         protected DisposableNativeObject(IntPtr nativePointer)
             : this(
                 nativePointer,
@@ -47,6 +71,8 @@ namespace Paraparty.UnityNative.Base
         {
         }
 
+        /// <summary>Initializes a wrapper with immutable ownership and deferred one-time pointer publication.</summary>
+        /// <param name="ownership">Whether cleanup destroys or only invalidates the native resource.</param>
         protected DisposableNativeObject(NativeOwnershipKind ownership)
             : this(
                 IntPtr.Zero,
@@ -56,6 +82,9 @@ namespace Paraparty.UnityNative.Base
         {
         }
 
+        /// <summary>Initializes a wrapper with immutable ownership and an immediately published pointer.</summary>
+        /// <param name="nativePointer">The pointer protected by operation leases.</param>
+        /// <param name="ownership">Whether cleanup destroys or only invalidates the native resource.</param>
         protected DisposableNativeObject(IntPtr nativePointer, NativeOwnershipKind ownership)
             : this(
                 nativePointer,
@@ -65,6 +94,11 @@ namespace Paraparty.UnityNative.Base
         {
         }
 
+        /// <summary>Initializes a wrapper with an immediately published pointer, ownership, and access policy.</summary>
+        /// <param name="nativePointer">The pointer protected by operation leases.</param>
+        /// <param name="ownership">Whether cleanup destroys or only invalidates the native resource.</param>
+        /// <param name="accessPolicy">The managed-thread policy for operations and explicit disposal.</param>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="accessPolicy"/> is not defined.</exception>
         protected DisposableNativeObject(
             IntPtr nativePointer,
             NativeOwnershipKind ownership,
@@ -93,14 +127,22 @@ namespace Paraparty.UnityNative.Base
             _pointerPublished = pointerPublicationState == PointerPublicationState.Published;
         }
 
+        /// <inheritdoc/>
         public long NativeOperationOwnerId => _operationOwnerId;
 
+        /// <summary>Gets the immutable managed-thread access policy selected during construction.</summary>
         public NativeAccessPolicy AccessPolicy => _accessPolicy;
 
+        /// <summary>Gets whether this wrapper explicitly supports exclusive native ownership transfer.</summary>
         protected virtual bool SupportsNativeTransfer => false;
 
+        /// <summary>
+        /// Gets cleanup stages that cannot move to a transfer ticket. Transfer requires
+        /// <see cref="CleanupStage.None"/>.
+        /// </summary>
         protected virtual CleanupStage RequiredCleanupBeforeTransfer => CleanupStage.All;
 
+        /// <inheritdoc/>
         public NativeOperationLease EnterOperation()
         {
             lock (_operationLock)
@@ -123,6 +165,13 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>Moves the published pointer into a new exclusive transfer ticket.</summary>
+        /// <returns>The ticket that becomes the sole native owner.</returns>
+        /// <exception cref="NotSupportedException"><see cref="SupportsNativeTransfer"/> is false.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// Cleanup requirements remain, transfer preparation fails, the pointer is unpublished, or operations are active.
+        /// </exception>
+        /// <exception cref="ObjectDisposedException">Admission is closed or the wrapper is not active.</exception>
         public NativeTransferTicket CreateTransferTicket()
         {
             lock (_operationLock)
@@ -182,6 +231,10 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>Publishes the native pointer exactly once before any operation enters.</summary>
+        /// <param name="nativePointer">The pointer protected by future operation leases.</param>
+        /// <exception cref="InvalidOperationException">A pointer is already published or an operation is active.</exception>
+        /// <exception cref="ObjectDisposedException">Admission is closed or the wrapper is not active.</exception>
         protected void PublishNativePointer(IntPtr nativePointer)
         {
             lock (_operationLock)
@@ -199,18 +252,26 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>Runs native cleanup against the private published pointer.</summary>
+        /// <returns>The derived cleanup oracle result.</returns>
         protected sealed override NativeCleanupResult CleanupNativeResource()
         {
             return CleanupNativeResource(_nativePointer);
         }
 
+        /// <summary>Destroys an owned native resource and returns explicit liveness evidence.</summary>
+        /// <param name="nativePointer">The pointer captured after operation admission has drained.</param>
+        /// <returns>A result proving freed, known-live, or unknown liveness.</returns>
         protected abstract NativeCleanupResult CleanupNativeResource(IntPtr nativePointer);
 
+        /// <summary>Performs the final wrapper-specific fence before ownership moves to a ticket.</summary>
+        /// <returns>A successful result to permit transfer, or a failure that aborts it.</returns>
         protected virtual CleanupStageResult PrepareNativeTransfer()
         {
             return CleanupStageResult.Succeeded();
         }
 
+        /// <inheritdoc/>
         protected override CleanupStageResult UnpublishOwner()
         {
             lock (_operationLock)
@@ -222,11 +283,13 @@ namespace Paraparty.UnityNative.Base
             return CleanupStageResult.Succeeded();
         }
 
+        /// <inheritdoc/>
         protected sealed override void ValidateExplicitDisposeThread()
         {
             ValidateOperationThread();
         }
 
+        /// <inheritdoc/>
         protected sealed override void CloseOperationAdmissionAndDrain()
         {
             lock (_operationLock)

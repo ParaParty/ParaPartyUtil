@@ -28,14 +28,20 @@ namespace Paraparty.UnityNative.Base
             Exception = exception;
         }
 
+        /// <summary>Gets the cleanup oracle's evidence about the native resource.</summary>
         public NativeResourceLiveness Liveness { get; }
 
+        /// <summary>Gets whether another cleanup attempt is safe.</summary>
         public CleanupFailureDisposition Disposition { get; }
 
+        /// <summary>Gets the native cleanup failure, or <see langword="null"/> on success.</summary>
         public Exception Exception { get; }
 
+        /// <summary>Gets whether cleanup explicitly proved that the resource was freed.</summary>
         public bool IsSuccess => Disposition == CleanupFailureDisposition.None;
 
+        /// <summary>Creates a successful result with explicit proof that the resource was freed.</summary>
+        /// <returns>A successful native cleanup result.</returns>
         public static NativeCleanupResult Freed()
         {
             return new NativeCleanupResult(
@@ -44,6 +50,10 @@ namespace Paraparty.UnityNative.Base
                 null);
         }
 
+        /// <summary>Creates a retryable failure with explicit proof that the resource remains live.</summary>
+        /// <param name="exception">The failure that occurred before native destruction.</param>
+        /// <returns>A known-live, retryable result.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="exception"/> is <see langword="null"/>.</exception>
         public static NativeCleanupResult KnownLiveRetryableFailure(Exception exception)
         {
             return new NativeCleanupResult(
@@ -52,6 +62,10 @@ namespace Paraparty.UnityNative.Base
                 exception);
         }
 
+        /// <summary>Creates a stable failure while preserving proof that the resource remains live.</summary>
+        /// <param name="exception">The failure that makes retry unsupported.</param>
+        /// <returns>A known-live, non-retryable result.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="exception"/> is <see langword="null"/>.</exception>
         public static NativeCleanupResult KnownLiveNonRetryableFailure(Exception exception)
         {
             return new NativeCleanupResult(
@@ -60,6 +74,10 @@ namespace Paraparty.UnityNative.Base
                 exception);
         }
 
+        /// <summary>Creates a stable failure when native liveness cannot be proven.</summary>
+        /// <param name="exception">The failure observed at or after an uncertain destruction boundary.</param>
+        /// <returns>An unknown-liveness, non-retryable result.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="exception"/> is <see langword="null"/>.</exception>
         public static NativeCleanupResult LivenessUnknownFailure(Exception exception)
         {
             return new NativeCleanupResult(

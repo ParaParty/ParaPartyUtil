@@ -8,6 +8,32 @@ namespace Paraparty.UnityNative.Base
     /// <summary>
     /// Owns a staged, retry-aware cleanup lifecycle.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The public workflow is <c>Active -&gt; Disposing -&gt; Disposed</c> on success and
+    /// <c>Active -&gt; Disposing -&gt; DisposeFaulted</c> when cleanup remains incomplete.
+    /// A native wrapper may instead make the one-way transition <c>Active -&gt; Transferred</c>.
+    /// Neither disposal nor transfer ever returns an instance to <c>Active</c>.
+    /// </para>
+    /// <para>
+    /// Cleanup is a dependency graph, not an expanded lifecycle enum. Managed cleanup and callback
+    /// fencing run before native cleanup; owner unpublication follows native completion. The four
+    /// nodes are independent completion bits, so a later attempt skips completed work. A failed node
+    /// is retryable only when its result explicitly proves another attempt is safe. An exception or
+    /// unknown native liveness creates a stable fault rather than risking repeated irreversible work.
+    /// </para>
+    /// <para>
+    /// One thread owns each monotonic cleanup-attempt epoch. Concurrent callers wait for that exact
+    /// attempt and observe the same result; reentrant disposal by the owner returns without deadlock.
+    /// The lifecycle epoch never moves backward, preventing a stale operation from being mistaken for
+    /// a newer lifecycle. Native pointer values are never used as liveness or identity evidence.
+    /// </para>
+    /// <para>
+    /// Explicit disposal closes operation admission and drains admitted work before executing the graph.
+    /// Finalization is a restricted, non-blocking executor: it runs only <see cref="FinalizerSafeStages"/>,
+    /// contains every exception, and emits truthful diagnostics when the object remains nonterminal.
+    /// </para>
+    /// </remarks>
     public abstract class DisposableObject : IDisposable
     {
         private sealed class DisposeAttempt
@@ -48,17 +74,24 @@ namespace Paraparty.UnityNative.Base
         private long _lifecycleEpoch;
         private bool _baseNativeResourcesReleased;
 
+        /// <summary>Gets the pinned managed handle owned by the base native-cleanup stage.</summary>
         protected GCHandle DataHandle { get; private set; }
 
+        /// <summary>Gets or sets the unmanaged allocation owned by the base native-cleanup stage.</summary>
         protected IntPtr AllocatedMemory { get; set; }
 
+        /// <summary>Gets or sets the memory-pressure size associated with <see cref="AllocatedMemory"/>.</summary>
         protected long AllocatedMemorySize { get; set; }
 
+        /// <summary>Initializes an active object that owns its native resource.</summary>
         protected DisposableObject()
             : this(NativeOwnershipKind.Owned)
         {
         }
 
+        /// <summary>Initializes an active object with immutable native ownership.</summary>
+        /// <param name="ownership">Whether native cleanup destroys or only invalidates the native resource.</param>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="ownership"/> is not a defined ownership kind.</exception>
         protected DisposableObject(NativeOwnershipKind ownership)
         {
             if (ownership != NativeOwnershipKind.Owned && ownership != NativeOwnershipKind.Borrowed)
@@ -70,8 +103,10 @@ namespace Paraparty.UnityNative.Base
             AllocatedMemory = IntPtr.Zero;
         }
 
+        /// <summary>Gets the immutable ownership selected during construction.</summary>
         public NativeOwnershipKind Ownership { get; }
 
+        /// <summary>Gets the current externally observable lifecycle state under the lifecycle lock.</summary>
         public NativeLifecycleState LifecycleState
         {
             get
@@ -83,6 +118,7 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>Gets whether the wrapper reached either terminal state, disposed or transferred.</summary>
         public bool IsDisposed
         {
             get
@@ -92,6 +128,7 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>Gets the cleanup stages proven complete across all attempts.</summary>
         public CleanupStage CompletedCleanupStages
         {
             get
@@ -103,6 +140,7 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>Gets the monotonic identity of the most recently started cleanup attempt.</summary>
         public long AttemptEpoch
         {
             get
@@ -114,6 +152,7 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>Gets the monotonic lifecycle identity used to reject stale operation leases.</summary>
         public long LifecycleEpoch
         {
             get
@@ -125,6 +164,7 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>Gets the last oracle-proven liveness of the native resource.</summary>
         public NativeResourceLiveness NativeLiveness
         {
             get
@@ -136,6 +176,12 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>
+        /// Closes operation admission, waits for admitted work, and executes all incomplete cleanup stages.
+        /// </summary>
+        /// <exception cref="NativeCleanupException">
+        /// Cleanup remains incomplete. A later call is allowed only when <see cref="NativeCleanupException.IsRetryable"/> is true.
+        /// </exception>
         public void Dispose()
         {
             ValidateExplicitDisposeThread();
@@ -181,6 +227,7 @@ namespace Paraparty.UnityNative.Base
             GC.SuppressFinalize(this);
         }
 
+        /// <summary>Runs the configured finalizer-safe subset and reports nonterminal cleanup without throwing.</summary>
         ~DisposableObject()
         {
             Exception failure = null;
@@ -215,36 +262,53 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>
+        /// Gets the cleanup stages that are explicitly safe on the finalizer thread. The default permits none.
+        /// Dependencies must also be complete before a listed stage can run.
+        /// </summary>
         protected virtual CleanupStage FinalizerSafeStages => CleanupStage.None;
 
+        /// <summary>Releases managed registrations and state for the managed cleanup stage.</summary>
+        /// <returns>A result that explicitly states success or retry safety.</returns>
         protected virtual CleanupStageResult CleanupManagedResources()
         {
             return CleanupStageResult.Succeeded();
         }
 
+        /// <summary>Stops callbacks and registrations before native destruction can begin.</summary>
+        /// <returns>A result that explicitly states success or retry safety.</returns>
         protected virtual CleanupStageResult FenceNativeCallbacks()
         {
             return CleanupStageResult.Succeeded();
         }
 
+        /// <summary>Destroys an owned native resource and reports oracle-proven liveness.</summary>
+        /// <returns>A result that never infers liveness from a pointer value.</returns>
         protected virtual NativeCleanupResult CleanupNativeResource()
         {
             return NativeCleanupResult.Freed();
         }
 
+        /// <summary>Removes native ownership publication after the native stage completes.</summary>
+        /// <returns>A result that explicitly states success or retry safety.</returns>
         protected virtual CleanupStageResult UnpublishOwner()
         {
             return CleanupStageResult.Succeeded();
         }
 
+        /// <summary>Validates any thread policy required before explicit disposal starts.</summary>
+        /// <exception cref="InvalidOperationException">The current thread violates the object's disposal policy.</exception>
         protected virtual void ValidateExplicitDisposeThread()
         {
         }
 
+        /// <summary>Closes new operation admission and waits for every admitted operation to leave.</summary>
         protected virtual void CloseOperationAdmissionAndDrain()
         {
         }
 
+        /// <summary>Atomically makes the one-way transition from active to transferred.</summary>
+        /// <returns><see langword="true"/> when this call won the transition; otherwise, <see langword="false"/>.</returns>
         protected bool TryTransitionToTransferred()
         {
             lock (_lifecycleLock)
@@ -262,6 +326,11 @@ namespace Paraparty.UnityNative.Base
             }
         }
 
+        /// <summary>Replaces the base-owned pinned handle with a handle for <paramref name="obj"/>.</summary>
+        /// <param name="obj">The managed object to pin while the wrapper is active.</param>
+        /// <returns>The allocated pinned handle.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="obj"/> is <see langword="null"/>.</exception>
+        /// <exception cref="ObjectDisposedException">The wrapper is not active.</exception>
         protected internal GCHandle AllocGCHandle(object obj)
         {
             if (obj == null)
@@ -274,6 +343,11 @@ namespace Paraparty.UnityNative.Base
             return DataHandle;
         }
 
+        /// <summary>Replaces the base-owned unmanaged allocation and records matching memory pressure.</summary>
+        /// <param name="size">The positive number of bytes to allocate.</param>
+        /// <returns>The allocated unmanaged address.</returns>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="size"/> is not positive.</exception>
+        /// <exception cref="ObjectDisposedException">The wrapper is not active.</exception>
         protected IntPtr AllocMemory(int size)
         {
             if (size <= 0)
@@ -287,6 +361,9 @@ namespace Paraparty.UnityNative.Base
             return AllocatedMemory;
         }
 
+        /// <summary>Replaces the memory-pressure accounting associated with the base allocation.</summary>
+        /// <param name="size">The positive number of unmanaged bytes currently owned.</param>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="size"/> is not positive.</exception>
         protected void NotifyMemoryPressure(long size)
         {
             if (size <= 0)
@@ -299,6 +376,8 @@ namespace Paraparty.UnityNative.Base
             GC.AddMemoryPressure(size);
         }
 
+        /// <summary>Throws unless the wrapper still accepts ordinary operations.</summary>
+        /// <exception cref="ObjectDisposedException">The lifecycle state is not <see cref="NativeLifecycleState.Active"/>.</exception>
         public void ThrowIfDisposed()
         {
             NativeLifecycleState state = LifecycleState;

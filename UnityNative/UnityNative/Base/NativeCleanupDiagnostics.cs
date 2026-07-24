@@ -10,6 +10,10 @@ namespace Paraparty.UnityNative.Base
     {
         private static Action<NativeCleanupDiagnostic> _sink;
 
+        /// <summary>
+        /// Gets or sets the process-wide diagnostic receiver. Receiver exceptions are ignored so
+        /// telemetry cannot change explicit cleanup or finalizer control flow.
+        /// </summary>
         public static Action<NativeCleanupDiagnostic> Sink
         {
             get => Volatile.Read(ref _sink);

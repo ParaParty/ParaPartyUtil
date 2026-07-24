@@ -21,6 +21,10 @@ namespace Paraparty.UnityNative.Base
     /// nodes are independent completion bits, so a later attempt skips completed work. A failed node
     /// is retryable only when its result explicitly proves another attempt is safe. An exception or
     /// unknown native liveness creates a stable fault rather than risking repeated irreversible work.
+    /// Base-owned pinned handles and unmanaged buffers are part of the native node: an owned wrapper
+    /// releases them only after the cleanup oracle proves the native resource freed. Known-live or
+    /// unknown results retain that supporting memory; a borrowed wrapper releases it after its callback
+    /// fence because no native destruction is attempted.
     /// </para>
     /// <para>
     /// One thread owns each monotonic cleanup-attempt epoch. Concurrent callers wait for that exact
@@ -338,7 +342,11 @@ namespace Paraparty.UnityNative.Base
 
             ThrowIfDisposed();
             if (DataHandle.IsAllocated)
-                DataHandle.Free();
+            {
+                GCHandle previousHandle = DataHandle;
+                previousHandle.Free();
+                DataHandle = default(GCHandle);
+            }
             DataHandle = GCHandle.Alloc(obj, GCHandleType.Pinned);
             return DataHandle;
         }
@@ -527,7 +535,7 @@ namespace Paraparty.UnityNative.Base
                 return;
 
             NativeCleanupResult nativeResult = null;
-            CleanupStageResult baseResourcesResult;
+            CleanupStageResult baseResourcesResult = CleanupStageResult.Succeeded();
 
             if (Ownership == NativeOwnershipKind.Borrowed)
             {
@@ -535,6 +543,8 @@ namespace Paraparty.UnityNative.Base
                 {
                     _nativeLiveness = NativeResourceLiveness.KnownLive;
                 }
+
+                baseResourcesResult = ReleaseBaseNativeResources();
             }
             else
             {
@@ -553,9 +563,12 @@ namespace Paraparty.UnityNative.Base
                 {
                     _nativeLiveness = nativeResult.Liveness;
                 }
-            }
 
-            baseResourcesResult = ReleaseBaseNativeResources();
+                // Supporting pins and unmanaged buffers can remain reachable from a live
+                // native resource. Preserve them unless destruction is explicitly proven.
+                if (nativeResult.IsSuccess)
+                    baseResourcesResult = ReleaseBaseNativeResources();
+            }
 
             lock (_lifecycleLock)
             {
@@ -605,7 +618,11 @@ namespace Paraparty.UnityNative.Base
             try
             {
                 if (DataHandle.IsAllocated)
-                    DataHandle.Free();
+                {
+                    GCHandle handle = DataHandle;
+                    handle.Free();
+                    DataHandle = default(GCHandle);
+                }
             }
             catch (Exception exception)
             {

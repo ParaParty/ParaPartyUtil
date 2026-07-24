@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -130,6 +131,72 @@ public class DisposableObjectLifecycleTests
     }
 
     [TestMethod]
+    public void KnownLiveNativeRetryPreservesBaseResourcesUntilFreed()
+    {
+        var value = new ScriptedDisposable(NativeOwnershipKind.Owned);
+        object pinned = new byte[32];
+        value.AllocateBaseResources(pinned, 64);
+        IntPtr originalAddress = value.BaseAllocatedMemory;
+        value.NativeResults.Enqueue(
+            NativeCleanupResult.KnownLiveRetryableFailure(new StageException("destroy-before-delete")));
+        value.NativeResults.Enqueue(NativeCleanupResult.Freed());
+
+        NativeCleanupException failure = Assert.ThrowsException<NativeCleanupException>(value.Dispose);
+
+        Assert.IsTrue(failure.IsRetryable);
+        Assert.IsTrue(value.IsBaseHandleAllocated);
+        Assert.AreSame(pinned, value.BaseHandleTarget);
+        Assert.AreEqual(originalAddress, value.BaseAllocatedMemory);
+        Assert.AreEqual(64L, value.BaseAllocatedMemorySize);
+        Marshal.WriteByte(value.BaseAllocatedMemory, 0, 0x5a);
+        Assert.AreEqual(0x5a, Marshal.ReadByte(value.BaseAllocatedMemory, 0));
+
+        value.Dispose();
+        value.Dispose();
+
+        Assert.IsFalse(value.IsBaseHandleAllocated);
+        Assert.AreEqual(IntPtr.Zero, value.BaseAllocatedMemory);
+        Assert.AreEqual(0L, value.BaseAllocatedMemorySize);
+        Assert.AreEqual(2, value.NativeCalls);
+        Assert.AreEqual(NativeLifecycleState.Disposed, value.LifecycleState);
+    }
+
+    [TestMethod]
+    public void StableLiveAndUnknownNativeFailuresPreserveBaseResources()
+    {
+        AssertStableNativeFailurePreservesBaseResources(
+            NativeCleanupResult.KnownLiveNonRetryableFailure(new StageException("known-live-stable")),
+            NativeResourceLiveness.KnownLive);
+        AssertStableNativeFailurePreservesBaseResources(
+            NativeCleanupResult.LivenessUnknownFailure(new StageException("unknown")),
+            NativeResourceLiveness.Unknown);
+    }
+
+    [TestMethod]
+    public void BorrowedOwnershipReleasesWrapperOwnedBaseResourcesAfterFence()
+    {
+        var value = new ScriptedDisposable(NativeOwnershipKind.Borrowed);
+        value.AllocateBaseResources(new byte[16], 32);
+        value.FenceResults.Enqueue(CleanupStageResult.RetryableFailure(new StageException("fence")));
+        value.FenceResults.Enqueue(CleanupStageResult.Succeeded());
+
+        Assert.ThrowsException<NativeCleanupException>(value.Dispose);
+
+        Assert.IsTrue(value.IsBaseHandleAllocated);
+        Assert.AreNotEqual(IntPtr.Zero, value.BaseAllocatedMemory);
+        Assert.AreEqual(32L, value.BaseAllocatedMemorySize);
+
+        value.Dispose();
+        value.Dispose();
+
+        Assert.IsFalse(value.IsBaseHandleAllocated);
+        Assert.AreEqual(IntPtr.Zero, value.BaseAllocatedMemory);
+        Assert.AreEqual(0L, value.BaseAllocatedMemorySize);
+        Assert.AreEqual(0, value.NativeCalls);
+        Assert.AreEqual(NativeLifecycleState.Disposed, value.LifecycleState);
+    }
+
+    [TestMethod]
     public void UnknownNativeLivenessCreatesStableFault()
     {
         var value = new ScriptedDisposable(NativeOwnershipKind.Owned);
@@ -254,6 +321,28 @@ public class DisposableObjectLifecycleTests
         }
     }
 
+    private static void AssertStableNativeFailurePreservesBaseResources(
+        NativeCleanupResult nativeResult,
+        NativeResourceLiveness expectedLiveness)
+    {
+        var value = new ScriptedDisposable(NativeOwnershipKind.Owned);
+        object pinned = new byte[16];
+        value.AllocateBaseResources(pinned, 32);
+        IntPtr originalAddress = value.BaseAllocatedMemory;
+        value.NativeResults.Enqueue(nativeResult);
+
+        NativeCleanupException first = Assert.ThrowsException<NativeCleanupException>(value.Dispose);
+        NativeCleanupException second = Assert.ThrowsException<NativeCleanupException>(value.Dispose);
+
+        Assert.AreSame(first, second);
+        Assert.AreEqual(expectedLiveness, first.NativeLiveness);
+        Assert.IsTrue(value.IsBaseHandleAllocated);
+        Assert.AreSame(pinned, value.BaseHandleTarget);
+        Assert.AreEqual(originalAddress, value.BaseAllocatedMemory);
+        Assert.AreEqual(32L, value.BaseAllocatedMemorySize);
+        Assert.AreEqual(1, value.NativeCalls);
+    }
+
     private sealed class StageException : Exception
     {
         public StageException(string message)
@@ -290,6 +379,20 @@ public class DisposableObjectLifecycleTests
         public Action ManagedAction { get; set; }
 
         public bool ThrowFromNative { get; set; }
+
+        public bool IsBaseHandleAllocated => DataHandle.IsAllocated;
+
+        public object BaseHandleTarget => DataHandle.IsAllocated ? DataHandle.Target : null;
+
+        public IntPtr BaseAllocatedMemory => AllocatedMemory;
+
+        public long BaseAllocatedMemorySize => AllocatedMemorySize;
+
+        public void AllocateBaseResources(object pinned, int size)
+        {
+            AllocGCHandle(pinned);
+            AllocMemory(size);
+        }
 
         protected override CleanupStageResult CleanupManagedResources()
         {

@@ -348,6 +348,91 @@ public class NativeOperationLeaseTests
     }
 
     [TestMethod]
+    public void CallbackCommandGuardRejectsBeforeMutationAndNativeCall()
+    {
+        var value = new LeaseDisposable(new IntPtr(1));
+
+        using (NativeCallbackExecutionScope callbackScope = value.EnterCallback())
+        {
+            InvalidOperationException failure =
+                Assert.ThrowsException<InvalidOperationException>(value.ExecuteLifecycleCommand);
+
+            StringAssert.Contains(failure.Message, "own native callbacks");
+            Assert.AreEqual(0, value.CommandMutations);
+            Assert.AreEqual(0, value.CommandNativeCalls);
+            Assert.AreEqual(NativeLifecycleState.Active, value.LifecycleState);
+        }
+
+        value.ExecuteLifecycleCommand();
+        Assert.AreEqual(1, value.CommandMutations);
+        Assert.AreEqual(1, value.CommandNativeCalls);
+        value.Dispose();
+    }
+
+    [TestMethod]
+    public void NestedAndFlowedCallbackCommandGuardsRemainOwnerScoped()
+    {
+        var first = new LeaseDisposable(new IntPtr(1));
+        var second = new LeaseDisposable(new IntPtr(2));
+
+        using (NativeCallbackExecutionScope outer = first.EnterCallback())
+        using (NativeCallbackExecutionScope inner = first.EnterCallback())
+        {
+            Task<Exception> child = Task.Run(() => CaptureException(first.ExecuteLifecycleCommand));
+
+            Assert.IsTrue(child.Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsInstanceOfType<InvalidOperationException>(child.Result);
+            Assert.ThrowsException<InvalidOperationException>(first.ExecuteLifecycleCommand);
+            second.ExecuteLifecycleCommand();
+        }
+
+        Assert.AreEqual(0, first.CommandMutations);
+        Assert.AreEqual(1, second.CommandMutations);
+        first.Dispose();
+        second.Dispose();
+    }
+
+    [TestMethod]
+    public void SuppressedFlowCallbackCommandGuardRejectsSameOwner()
+    {
+        var value = new LeaseDisposable(new IntPtr(1));
+        Task<Exception> callback;
+
+        using (ExecutionContext.SuppressFlow())
+        {
+            callback = Task.Run(() =>
+            {
+                using (NativeCallbackExecutionScope callbackScope = value.EnterCallback())
+                {
+                    return CaptureException(value.ExecuteLifecycleCommand);
+                }
+            });
+        }
+
+        Assert.IsTrue(callback.Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsInstanceOfType<InvalidOperationException>(callback.Result);
+        Assert.AreEqual(0, value.CommandMutations);
+        Assert.AreEqual(0, value.CommandNativeCalls);
+        value.Dispose();
+    }
+
+    [TestMethod]
+    public void OrdinaryLeaseDoesNotTriggerCallbackCommandGuard()
+    {
+        var value = new LeaseDisposable(new IntPtr(1));
+
+        using (NativeOperationLease lease = value.EnterOperation())
+        {
+            value.ExecuteLifecycleCommand();
+            Assert.AreEqual(new IntPtr(1), lease.Pointer);
+        }
+
+        Assert.AreEqual(1, value.CommandMutations);
+        Assert.AreEqual(1, value.CommandNativeCalls);
+        value.Dispose();
+    }
+
+    [TestMethod]
     public void CallbackScopeCanBeDisposedFromAnotherThread()
     {
         var value = new LeaseDisposable(new IntPtr(1));
@@ -528,6 +613,10 @@ public class NativeOperationLeaseTests
 
         public int NativeCleanupCalls { get; private set; }
 
+        public int CommandMutations { get; private set; }
+
+        public int CommandNativeCalls { get; private set; }
+
         public void Publish(IntPtr pointer)
         {
             PublishNativePointer(pointer);
@@ -536,6 +625,13 @@ public class NativeOperationLeaseTests
         public NativeCallbackExecutionScope EnterCallback()
         {
             return EnterNativeCallbackExecution();
+        }
+
+        public void ExecuteLifecycleCommand()
+        {
+            ThrowIfCurrentExecutionIsNativeCallback();
+            CommandMutations++;
+            CommandNativeCalls++;
         }
 
         protected override NativeCleanupResult CleanupNativeResource(IntPtr nativePointer)

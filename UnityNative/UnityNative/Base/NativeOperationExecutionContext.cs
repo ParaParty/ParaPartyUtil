@@ -53,6 +53,20 @@ namespace Paraparty.UnityNative.Base
             return false;
         }
 
+        public static bool ContainsOwner(long ownerId, NativeOperationExecutionKind kind)
+        {
+            NativeOperationExecutionMarker[] markers = Compact(CurrentMarkers.Value);
+            CurrentMarkers.Value = markers.Length == 0 ? null : markers;
+
+            for (int i = 0; i < markers.Length; i++)
+            {
+                if (markers[i].OwnerId == ownerId && markers[i].Kind == kind)
+                    return true;
+            }
+
+            return false;
+        }
+
         public static void Exit(NativeOperationExecutionMarker marker)
         {
             if (marker == null)

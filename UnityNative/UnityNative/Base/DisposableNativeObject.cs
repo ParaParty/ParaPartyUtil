@@ -168,7 +168,8 @@ namespace Paraparty.UnityNative.Base
                 var marker = new NativeOperationExecutionMarker(
                     _operationOwnerId,
                     lifecycleEpoch,
-                    leaseToken);
+                    leaseToken,
+                    NativeOperationExecutionKind.Lease);
                 var lease = new NativeOperationLease(
                     this,
                     _nativePointer,
@@ -210,6 +211,27 @@ namespace Paraparty.UnityNative.Base
             return new NativeCallbackExecutionScope(_operationOwnerId, LifecycleEpoch);
         }
 
+        /// <summary>
+        /// Rejects a lifecycle command invoked from a native callback for this same wrapper owner.
+        /// </summary>
+        /// <remarks>
+        /// Call this before acquiring a command lock, mutating managed state, or entering native code.
+        /// Ordinary operation leases and callbacks for another owner do not trigger this guard.
+        /// </remarks>
+        /// <exception cref="InvalidOperationException">
+        /// The current logical execution contains this owner's native callback marker.
+        /// </exception>
+        protected void ThrowIfCurrentExecutionIsNativeCallback()
+        {
+            if (NativeOperationExecutionContext.ContainsOwner(
+                    _operationOwnerId,
+                    NativeOperationExecutionKind.NativeCallback))
+            {
+                throw new InvalidOperationException(
+                    "A native wrapper lifecycle command cannot run from one of its own native callbacks.");
+            }
+        }
+
         /// <summary>Moves the published pointer into a new exclusive transfer ticket.</summary>
         /// <returns>The ticket that becomes the sole native owner.</returns>
         /// <exception cref="NotSupportedException"><see cref="SupportsNativeTransfer"/> is false.</exception>
@@ -220,6 +242,7 @@ namespace Paraparty.UnityNative.Base
         /// <exception cref="ObjectDisposedException">Admission is closed or the wrapper is not active.</exception>
         public NativeTransferTicket CreateTransferTicket()
         {
+            NativeOperationExecutionMarker preparationMarker;
             lock (_operationLock)
             {
                 ValidateOperationThread();
@@ -245,11 +268,26 @@ namespace Paraparty.UnityNative.Base
                 if (_activeLeaseEpochs.Count != 0)
                     throw new InvalidOperationException("Native ownership cannot be transferred while operations are active.");
 
+                preparationMarker = new NativeOperationExecutionMarker(
+                    _operationOwnerId,
+                    LifecycleEpoch,
+                    0,
+                    NativeOperationExecutionKind.TransferPreparation);
+                NativeOperationExecutionContext.Enter(preparationMarker);
                 _transferInProgress = true;
                 _operationAdmissionClosed = true;
             }
 
-            CleanupStageResult preparation = InvokeTransferPreparation();
+            CleanupStageResult preparation;
+            try
+            {
+                preparation = InvokeTransferPreparation();
+            }
+            finally
+            {
+                NativeOperationExecutionContext.Exit(preparationMarker);
+            }
+
             if (!preparation.IsSuccess)
             {
                 lock (_operationLock)
@@ -355,7 +393,7 @@ namespace Paraparty.UnityNative.Base
             {
                 throw new InvalidOperationException(
                     "A native wrapper cannot be disposed from an execution context that holds one of its " +
-                    "operation leases or native callback scopes.");
+                    "operation leases, native callback scopes, or transfer preparations.");
             }
 
             ValidateOperationThread();

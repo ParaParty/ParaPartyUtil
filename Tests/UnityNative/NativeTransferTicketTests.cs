@@ -73,8 +73,99 @@ public class NativeTransferTicketTests
         Assert.ThrowsException<InvalidOperationException>(value.CreateTransferTicket);
 
         Assert.AreEqual(NativeLifecycleState.Active, value.LifecycleState);
-        using NativeOperationLease lease = value.EnterOperation();
-        Assert.AreEqual(new IntPtr(0x1234), lease.Pointer);
+        Assert.AreEqual(0, value.CleanupCalls);
+        using (NativeOperationLease lease = value.EnterOperation())
+        {
+            Assert.AreEqual(new IntPtr(0x1234), lease.Pointer);
+        }
+
+        value.Dispose();
+        Assert.AreEqual(1, value.CleanupCalls);
+    }
+
+    [TestMethod]
+    public void ReentrantDisposeDuringTransferPreparationFailsBeforeLifecycleMutation()
+    {
+        var value = new TransferDisposable(true, CleanupStage.None);
+        value.PreparationAction = value.Dispose;
+
+        Task<Exception> transfer = Task.Run(
+            () => CaptureException(() => value.CreateTransferTicket()));
+
+        Assert.IsTrue(
+            transfer.Wait(TimeSpan.FromSeconds(5)),
+            "Transfer preparation must reject self-disposal instead of waiting for itself.");
+        Assert.IsInstanceOfType<InvalidOperationException>(transfer.Result);
+        Assert.IsInstanceOfType<InvalidOperationException>(transfer.Result.InnerException);
+        StringAssert.Contains(transfer.Result.InnerException.Message, "transfer preparations");
+        Assert.AreEqual(NativeLifecycleState.Active, value.LifecycleState);
+        Assert.AreEqual(0, value.CleanupCalls);
+        using (NativeOperationLease lease = value.EnterOperation())
+        {
+            Assert.AreEqual(new IntPtr(0x1234), lease.Pointer);
+        }
+
+        value.Dispose();
+        Assert.AreEqual(1, value.CleanupCalls);
+    }
+
+    [TestMethod]
+    public void FlowedChildCannotDisposeDuringTransferPreparation()
+    {
+        var value = new TransferDisposable(true, CleanupStage.None);
+        Exception childFailure = null;
+        value.PreparationAction = () =>
+        {
+            childFailure = Task.Run(() => CaptureException(value.Dispose)).Result;
+            if (childFailure != null)
+                throw childFailure;
+        };
+
+        Assert.ThrowsException<InvalidOperationException>(value.CreateTransferTicket);
+
+        Assert.IsInstanceOfType<InvalidOperationException>(childFailure);
+        StringAssert.Contains(childFailure.Message, "transfer preparations");
+        Assert.AreEqual(NativeLifecycleState.Active, value.LifecycleState);
+        Assert.AreEqual(0, value.CleanupCalls);
+        value.Dispose();
+        Assert.AreEqual(1, value.CleanupCalls);
+    }
+
+    [TestMethod]
+    public void ThrowingTransferPreparationDoesNotLeakExecutionMarker()
+    {
+        var value = new TransferDisposable(true, CleanupStage.None)
+        {
+            PreparationAction = () => throw new StageException(),
+        };
+
+        Assert.ThrowsException<InvalidOperationException>(value.CreateTransferTicket);
+
+        Assert.AreEqual(NativeLifecycleState.Active, value.LifecycleState);
+        Assert.AreEqual(0, value.CleanupCalls);
+        value.Dispose();
+        Assert.AreEqual(NativeLifecycleState.Disposed, value.LifecycleState);
+        Assert.AreEqual(1, value.CleanupCalls);
+    }
+
+    [TestMethod]
+    public void NestedTransferPreparationRemainsRejectedAndRestoresAdmission()
+    {
+        var value = new TransferDisposable(true, CleanupStage.None);
+        value.PreparationAction = () => value.CreateTransferTicket();
+
+        InvalidOperationException failure =
+            Assert.ThrowsException<InvalidOperationException>(value.CreateTransferTicket);
+
+        Assert.IsInstanceOfType<ObjectDisposedException>(failure.InnerException);
+        Assert.AreEqual(NativeLifecycleState.Active, value.LifecycleState);
+        Assert.AreEqual(0, value.CleanupCalls);
+        using (NativeOperationLease lease = value.EnterOperation())
+        {
+            Assert.AreEqual(new IntPtr(0x1234), lease.Pointer);
+        }
+
+        value.Dispose();
     }
 
     [TestMethod]

@@ -25,7 +25,11 @@ namespace Paraparty.UnityNative.Base
 
         internal NativeCallbackExecutionScope(long ownerId, long lifecycleEpoch)
         {
-            var marker = new NativeOperationExecutionMarker(ownerId, lifecycleEpoch, 0);
+            var marker = new NativeOperationExecutionMarker(
+                ownerId,
+                lifecycleEpoch,
+                0,
+                NativeOperationExecutionKind.NativeCallback);
             _executionMarker = marker;
 
             try

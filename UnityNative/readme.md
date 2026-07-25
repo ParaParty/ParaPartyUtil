@@ -8,7 +8,8 @@ The public lifecycle is intentionally small:
 flowchart TD
     A[Active] -->|Dispose| D[Disposing]
     D --> M[Managed]
-    D --> F[Callback fence]
+    D --> Q[Native quiesce]
+    Q --> F[Callback fence]
     F --> N[Native]
     N --> U[Owner unpublish]
     M --> X{All required stages complete?}
@@ -20,7 +21,9 @@ flowchart TD
     A -->|exclusive transfer| T[Transferred]
 ```
 
-`Managed`, `CallbackFence`, `Native`, and `OwnerUnpublish` are independent completion bits, not additional lifecycle states. A wrapper never returns to `Active`. A cleanup retry only runs incomplete stages whose result explicitly proves that retrying is safe. Native pointer values, including zero, are never evidence that a resource is live or freed.
+`Managed`, `NativeQuiesce`, `CallbackFence`, `Native`, and `OwnerUnpublish` are independent completion bits, not additional lifecycle states. A wrapper never returns to `Active`. A cleanup retry only runs incomplete stages whose result explicitly proves that retrying is safe. Native pointer values, including zero, are never evidence that a resource is live or freed.
+
+Native quiescence cancels native work before callback draining and destruction. Each attempt receives a fresh `NativeQuiesceToken`; the protected `GetNativePointer(token)` resolver accepts it only during that hook invocation and rejects stale lifecycle, publication, owner, or attempt identities. The token is revoked before callback fencing and native destruction. A derived hook must apply its owning layer's absolute deadline to the complete cancellation operation and return success only after cancellation has completed. A timeout is an observable failure and may be retryable only when another attempt is proven safe; ParaPartyUtil does not provide a wall-clock timeout or an automatic retry loop.
 
 `NativeOwnershipKind.Owned` runs the native destroy hook. Base-owned pinned handles and unmanaged buffers are released only after the cleanup oracle proves the owned native resource was freed; known-live and unknown failures retain that supporting memory. `NativeOwnershipKind.Borrowed` skips only native destruction; after its callback fence succeeds, it releases wrapper-owned supporting memory, performs the other cleanup stages, invalidates the wrapper, and reaches `Disposed`.
 
@@ -63,6 +66,7 @@ This lifecycle is a deliberate source break. Consumers must migrate before adopt
 | `DisposableNativeObject(..., bool isEnabledDispose)` | Immutable ownership constructor |
 | `NativePtr`, protected `ptr`, `INativePtrHolder` | `EnterOperation()` and `NativeOperationLease.Pointer` |
 | Override `DisposeManaged()` | Return `CleanupStageResult` from `CleanupManagedResources()` |
+| Stop or cancel native work during ad hoc disposal | Override `QuiesceNativeResource(NativeQuiesceToken)`, use `GetNativePointer(token)`, apply the owning layer's absolute deadline, and report completion or retryable timeout |
 | Override `DisposeUnmanaged()` | Return an explicit `NativeCleanupResult` from `CleanupNativeResource(IntPtr)` |
 | Read/check pointer before a P/Invoke | Keep one lease alive across the entire P/Invoke |
 | Invoke consumer code from a native callback | Enter the wrapper's opaque callback execution scope in the adapter before consumer code |

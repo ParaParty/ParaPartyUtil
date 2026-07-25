@@ -16,9 +16,11 @@ namespace Paraparty.UnityNative.Base
     /// Neither disposal nor transfer ever returns an instance to <c>Active</c>.
     /// </para>
     /// <para>
-    /// Cleanup is a dependency graph, not an expanded lifecycle enum. Managed cleanup and callback
-    /// fencing run before native cleanup; owner unpublication follows native completion. The four
-    /// nodes are independent completion bits, so a later attempt skips completed work. A failed node
+    /// Cleanup is a dependency graph, not an expanded lifecycle enum. Managed cleanup is followed by
+    /// native quiescence, callback fencing, native cleanup, and owner unpublication. The five nodes are
+    /// independent completion bits, so a later attempt skips completed work. Native quiescence must
+    /// finish cancellation before the callback fence can drain callbacks, and native cleanup waits for
+    /// that fence. A failed node
     /// is retryable only when its result explicitly proves another attempt is safe. An exception or
     /// unknown native liveness creates a stable fault rather than risking repeated irreversible work.
     /// Base-owned pinned handles and unmanaged buffers are part of the native node: an owned wrapper
@@ -60,6 +62,7 @@ namespace Paraparty.UnityNative.Base
         private static readonly CleanupStage[] OrderedStages =
         {
             CleanupStage.Managed,
+            CleanupStage.NativeQuiesce,
             CleanupStage.CallbackFence,
             CleanupStage.Native,
             CleanupStage.OwnerUnpublish,
@@ -279,6 +282,17 @@ namespace Paraparty.UnityNative.Base
             return CleanupStageResult.Succeeded();
         }
 
+        /// <summary>Cancels native work before callback draining begins.</summary>
+        /// <returns>A result that succeeds only after native cancellation has completed.</returns>
+        /// <remarks>
+        /// Implementations must enforce the owning layer's absolute deadline. A deadline expiry must
+        /// return an observable failure and may be retryable only when another attempt is proven safe.
+        /// </remarks>
+        protected virtual CleanupStageResult QuiesceNativeResource()
+        {
+            return CleanupStageResult.Succeeded();
+        }
+
         /// <summary>Stops callbacks and registrations before native destruction can begin.</summary>
         /// <returns>A result that explicitly states success or retry safety.</returns>
         protected virtual CleanupStageResult FenceNativeCallbacks()
@@ -433,8 +447,14 @@ namespace Paraparty.UnityNative.Base
                 if ((allowedStages & CleanupStage.Managed) != 0)
                     ExecuteStage(CleanupStage.Managed, InvokeManagedCleanup);
 
-                if ((allowedStages & CleanupStage.CallbackFence) != 0)
+                if ((allowedStages & CleanupStage.NativeQuiesce) != 0)
+                    ExecuteStage(CleanupStage.NativeQuiesce, InvokeNativeQuiesce);
+
+                if ((allowedStages & CleanupStage.CallbackFence) != 0 &&
+                    IsStageComplete(CleanupStage.NativeQuiesce))
+                {
                     ExecuteStage(CleanupStage.CallbackFence, InvokeCallbackFence);
+                }
 
                 if ((allowedStages & CleanupStage.Native) != 0 &&
                     IsStageComplete(CleanupStage.CallbackFence))
@@ -740,6 +760,11 @@ namespace Paraparty.UnityNative.Base
         private CleanupStageResult InvokeManagedCleanup()
         {
             return CleanupManagedResources();
+        }
+
+        private CleanupStageResult InvokeNativeQuiesce()
+        {
+            return QuiesceNativeResource();
         }
 
         private CleanupStageResult InvokeCallbackFence()

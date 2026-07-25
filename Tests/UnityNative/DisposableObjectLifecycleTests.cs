@@ -55,7 +55,7 @@ public class DisposableObjectLifecycleTests
 
         Assert.IsTrue(failure.IsRetryable);
         Assert.AreEqual(CleanupStage.Managed | CleanupStage.CallbackFence, failure.FailedStages);
-        Assert.AreEqual(CleanupStage.None, value.CompletedCleanupStages);
+        Assert.AreEqual(CleanupStage.NativeQuiesce, value.CompletedCleanupStages);
         Assert.AreEqual(1, value.ManagedCalls);
         Assert.AreEqual(1, value.FenceCalls);
         Assert.AreEqual(0, value.NativeCalls);
@@ -73,7 +73,8 @@ public class DisposableObjectLifecycleTests
 
         Assert.IsTrue(failure.IsRetryable);
         Assert.AreEqual(
-            CleanupStage.CallbackFence | CleanupStage.Native | CleanupStage.OwnerUnpublish,
+            CleanupStage.NativeQuiesce | CleanupStage.CallbackFence |
+            CleanupStage.Native | CleanupStage.OwnerUnpublish,
             value.CompletedCleanupStages);
 
         value.Dispose();
@@ -95,7 +96,9 @@ public class DisposableObjectLifecycleTests
 
         Assert.ThrowsException<NativeCleanupException>(value.Dispose);
 
-        Assert.AreEqual(CleanupStage.Managed, value.CompletedCleanupStages);
+        Assert.AreEqual(
+            CleanupStage.Managed | CleanupStage.NativeQuiesce,
+            value.CompletedCleanupStages);
         Assert.AreEqual(0, value.NativeCalls);
 
         value.Dispose();
@@ -119,7 +122,9 @@ public class DisposableObjectLifecycleTests
 
         Assert.IsTrue(failure.IsRetryable);
         Assert.AreEqual(NativeResourceLiveness.KnownLive, failure.NativeLiveness);
-        Assert.AreEqual(CleanupStage.Managed | CleanupStage.CallbackFence, value.CompletedCleanupStages);
+        Assert.AreEqual(
+            CleanupStage.Managed | CleanupStage.NativeQuiesce | CleanupStage.CallbackFence,
+            value.CompletedCleanupStages);
 
         value.Dispose();
 
@@ -302,7 +307,8 @@ public class DisposableObjectLifecycleTests
         Assert.IsFalse(failure.IsRetryable);
         Assert.AreEqual(CleanupStage.Managed, failure.FailedStages);
         Assert.AreEqual(
-            CleanupStage.CallbackFence | CleanupStage.Native | CleanupStage.OwnerUnpublish,
+            CleanupStage.NativeQuiesce | CleanupStage.CallbackFence |
+            CleanupStage.Native | CleanupStage.OwnerUnpublish,
             value.CompletedCleanupStages);
         Assert.AreEqual(1, value.NativeCalls);
         Assert.AreEqual(1, value.UnpublishCalls);

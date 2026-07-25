@@ -30,12 +30,14 @@ public class FinalizerAndResourcesTrackerTests
     public void FinalizerReportsFreedWithoutFalselyReportingDisposed()
     {
         NativeCleanupDiagnostic diagnostic = CollectFinalizerDiagnostic(
-            CleanupStage.CallbackFence | CleanupStage.Native | CleanupStage.OwnerUnpublish,
+            CleanupStage.NativeQuiesce | CleanupStage.CallbackFence |
+            CleanupStage.Native | CleanupStage.OwnerUnpublish,
             NativeCleanupResult.Freed());
 
         Assert.AreEqual(NativeLifecycleState.DisposeFaulted, diagnostic.LifecycleState);
         Assert.AreEqual(
-            CleanupStage.CallbackFence | CleanupStage.Native | CleanupStage.OwnerUnpublish,
+            CleanupStage.NativeQuiesce | CleanupStage.CallbackFence |
+            CleanupStage.Native | CleanupStage.OwnerUnpublish,
             diagnostic.CompletedStages);
         Assert.AreEqual(NativeResourceLiveness.Freed, diagnostic.NativeLiveness);
     }
@@ -44,11 +46,14 @@ public class FinalizerAndResourcesTrackerTests
     public void FinalizerReportsUnknownNativeLivenessTruthfully()
     {
         NativeCleanupDiagnostic diagnostic = CollectFinalizerDiagnostic(
-            CleanupStage.CallbackFence | CleanupStage.Native | CleanupStage.OwnerUnpublish,
+            CleanupStage.NativeQuiesce | CleanupStage.CallbackFence |
+            CleanupStage.Native | CleanupStage.OwnerUnpublish,
             NativeCleanupResult.LivenessUnknownFailure(new StageException("unknown")));
 
         Assert.AreEqual(NativeLifecycleState.DisposeFaulted, diagnostic.LifecycleState);
-        Assert.AreEqual(CleanupStage.CallbackFence, diagnostic.CompletedStages);
+        Assert.AreEqual(
+            CleanupStage.NativeQuiesce | CleanupStage.CallbackFence,
+            diagnostic.CompletedStages);
         Assert.AreEqual(NativeResourceLiveness.Unknown, diagnostic.NativeLiveness);
         Assert.IsInstanceOfType<NativeCleanupException>(diagnostic.Exception);
     }

@@ -15,8 +15,9 @@ namespace Paraparty.UnityNative.Base
     /// P/Invoke interval. A native-to-managed adapter must enter <see cref="EnterNativeCallbackExecution"/>
     /// before invoking callback consumers, including callbacks on threads without managed execution-context
     /// flow. Disposal from the same logical execution context as an active lease or callback scope is rejected
-    /// before lifecycle arbitration; external disposal closes admission, waits for every lease token, executes
-    /// staged cleanup, and unpublishes the pointer only after the native stage succeeds.
+    /// before lifecycle arbitration; external disposal closes admission, waits for every lease token, quiesces
+    /// native work through a per-attempt token, drains callbacks, executes native cleanup, and unpublishes the
+    /// pointer only after the native stage succeeds.
     /// </para>
     /// <para>
     /// Lease identity combines a process-wide monotonic owner ID, lifecycle epoch, and per-owner monotonic
@@ -53,6 +54,9 @@ namespace Paraparty.UnityNative.Base
         private bool _operationAdmissionClosed;
         private bool _transferInProgress;
         private long _lastLeaseToken;
+        private long _pointerPublicationGeneration;
+        private long _quiesceAttemptGeneration;
+        private NativeQuiesceToken _activeQuiesceToken;
 
         /// <summary>Initializes an owned wrapper whose pointer will be published once after construction starts.</summary>
         protected DisposableNativeObject()
@@ -129,6 +133,8 @@ namespace Paraparty.UnityNative.Base
             _accessPolicy = accessPolicy;
             _nativePointer = nativePointer;
             _pointerPublished = pointerPublicationState == PointerPublicationState.Published;
+            if (_pointerPublished)
+                _pointerPublicationGeneration = 1;
         }
 
         /// <inheritdoc/>
@@ -324,6 +330,7 @@ namespace Paraparty.UnityNative.Base
                     throw CreateUnavailableException();
                 }
 
+                RevokeActiveQuiesceTokenLocked();
                 _nativePointer = IntPtr.Zero;
                 _pointerPublished = false;
                 ticket.PublishOwnership();
@@ -350,8 +357,84 @@ namespace Paraparty.UnityNative.Base
                 if (_activeLeaseEpochs.Count != 0)
                     throw new InvalidOperationException("A native pointer cannot be published while operations are active.");
 
+                _pointerPublicationGeneration = NextMonotonicId(ref _pointerPublicationGeneration);
                 _nativePointer = nativePointer;
                 _pointerPublished = true;
+            }
+        }
+
+        /// <summary>Invokes one native-quiesce attempt with a fresh, revocable pointer token.</summary>
+        /// <returns>The derived hook's explicit completion or retry disposition.</returns>
+        protected sealed override CleanupStageResult QuiesceNativeResource()
+        {
+            NativeQuiesceToken token;
+            lock (_operationLock)
+            {
+                long attemptGeneration = NextMonotonicId(ref _quiesceAttemptGeneration);
+                token = new NativeQuiesceToken(
+                    this,
+                    _operationOwnerId,
+                    LifecycleEpoch,
+                    _pointerPublicationGeneration,
+                    attemptGeneration);
+                _activeQuiesceToken = token;
+            }
+
+            try
+            {
+                return QuiesceNativeResource(token);
+            }
+            finally
+            {
+                lock (_operationLock)
+                {
+                    token.Revoke();
+                    if (ReferenceEquals(_activeQuiesceToken, token))
+                        _activeQuiesceToken = null;
+                }
+            }
+        }
+
+        /// <summary>Cancels native work before callback draining and destruction.</summary>
+        /// <param name="token">The token that authorizes pointer resolution for this hook invocation.</param>
+        /// <returns>A result that succeeds only after cancellation has completed.</returns>
+        /// <remarks>
+        /// Use the owning layer's absolute deadline for the complete cancellation operation. Return an
+        /// observable retryable failure on timeout only when a fresh attempt is safe. ParaPartyUtil does not
+        /// impose a wall-clock timeout or retry loop.
+        /// </remarks>
+        protected virtual CleanupStageResult QuiesceNativeResource(NativeQuiesceToken token)
+        {
+            return CleanupStageResult.Succeeded();
+        }
+
+        /// <summary>Resolves the private native pointer for the active quiesce hook only.</summary>
+        /// <param name="token">The token issued to the current quiesce hook invocation.</param>
+        /// <returns>The currently published native pointer.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="token"/> is <see langword="null"/>.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// The token is stale, revoked, belongs to another owner or lifecycle, or its publication is unavailable.
+        /// </exception>
+        protected IntPtr GetNativePointer(NativeQuiesceToken token)
+        {
+            if (token == null)
+                throw new ArgumentNullException(nameof(token));
+
+            lock (_operationLock)
+            {
+                if (!token.IsActive ||
+                    !ReferenceEquals(token.Owner, this) ||
+                    token.OwnerId != _operationOwnerId ||
+                    token.LifecycleEpoch != LifecycleEpoch ||
+                    token.PointerPublicationGeneration != _pointerPublicationGeneration ||
+                    !ReferenceEquals(_activeQuiesceToken, token) ||
+                    !_pointerPublished)
+                {
+                    throw new InvalidOperationException(
+                        "The native-quiesce token is stale, revoked, or no longer matches a published pointer.");
+                }
+
+                return _nativePointer;
             }
         }
 
@@ -359,7 +442,14 @@ namespace Paraparty.UnityNative.Base
         /// <returns>The derived cleanup oracle result.</returns>
         protected sealed override NativeCleanupResult CleanupNativeResource()
         {
-            return CleanupNativeResource(_nativePointer);
+            IntPtr nativePointer;
+            lock (_operationLock)
+            {
+                RevokeActiveQuiesceTokenLocked();
+                nativePointer = _nativePointer;
+            }
+
+            return CleanupNativeResource(nativePointer);
         }
 
         /// <summary>Destroys an owned native resource and returns explicit liveness evidence.</summary>
@@ -379,6 +469,7 @@ namespace Paraparty.UnityNative.Base
         {
             lock (_operationLock)
             {
+                RevokeActiveQuiesceTokenLocked();
                 _nativePointer = IntPtr.Zero;
                 _pointerPublished = false;
             }
@@ -492,6 +583,15 @@ namespace Paraparty.UnityNative.Base
             return new ObjectDisposedException(
                 GetType().FullName,
                 "Native operation admission is closed. LifecycleState=" + LifecycleState + ".");
+        }
+
+        private void RevokeActiveQuiesceTokenLocked()
+        {
+            if (_activeQuiesceToken == null)
+                return;
+
+            _activeQuiesceToken.Revoke();
+            _activeQuiesceToken = null;
         }
 
         private static long NextMonotonicId(ref long counter)

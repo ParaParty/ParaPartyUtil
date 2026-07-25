@@ -23,7 +23,10 @@ namespace Paraparty.UnityNative.Base
         /// <summary>Removes the native pointer from the managed owner after native cleanup.</summary>
         OwnerUnpublish = 1 << 3,
 
+        /// <summary>Cancels native work before callbacks are drained and native destruction begins.</summary>
+        NativeQuiesce = 1 << 4,
+
         /// <summary>All stages required for a normally disposed wrapper.</summary>
-        All = Managed | CallbackFence | Native | OwnerUnpublish,
+        All = Managed | NativeQuiesce | CallbackFence | Native | OwnerUnpublish,
     }
 }

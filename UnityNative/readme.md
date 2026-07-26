@@ -73,3 +73,7 @@ This lifecycle is a deliberate source break. Consumers must migrate before adopt
 | Hand a pointer to another native owner | Explicit transfer opt-in, finalizer-safe rollback proof, and `NativeTransferTicket` |
 
 Old consumers and the new base are not compatible. There is no obsolete raw-pointer getter or mutable ownership shim because either would let unsafe consumers continue to compile.
+
+## Dormant lifecycle kernel
+
+The package contains an internal V3 lifecycle kernel and model-derived conformance harness. The kernel is dormant: no production entrypoint constructs it, reads it, or writes it, and the legacy lifecycle remains the sole runtime authority. Its internal types are not a supported API and are not serialized. Activation requires a later atomic cutover with separate review and runtime evidence; this package revision does not enable V3 transfer or change consumer behavior.

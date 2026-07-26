@@ -63,6 +63,52 @@ public class NativeTransferTicketTests
     }
 
     [TestMethod]
+    public void SameOwnerCallbackRejectsTransferBeforePreparationOrOwnershipMutation()
+    {
+        var value = new TransferDisposable(true, CleanupStage.None);
+        int simulatedNativeCalls = 0;
+        value.PreparationAction = () => simulatedNativeCalls++;
+
+        using (NativeCallbackExecutionScope callbackScope = value.EnterCallback())
+        {
+            Assert.ThrowsException<InvalidOperationException>(value.CreateTransferTicket);
+
+            Assert.AreEqual(0, value.PreparationCalls);
+            Assert.AreEqual(0, simulatedNativeCalls);
+            Assert.AreEqual(NativeLifecycleState.Active, value.LifecycleState);
+            using (NativeOperationLease lease = value.EnterOperation())
+            {
+                Assert.AreEqual(new IntPtr(0x1234), lease.Pointer);
+            }
+        }
+
+        NativeTransferTicket ticket = value.CreateTransferTicket();
+        Assert.AreEqual(1, value.PreparationCalls);
+        Assert.AreEqual(1, simulatedNativeCalls);
+        Assert.AreEqual(NativeLifecycleState.Transferred, value.LifecycleState);
+        Assert.IsTrue(ticket.TryRollback());
+        Assert.AreEqual(1, value.CleanupCalls);
+    }
+
+    [TestMethod]
+    public void ForeignCallbackDoesNotBlockTransferForAnotherOwner()
+    {
+        var callbackOwner = new TransferDisposable(true, CleanupStage.None);
+        var transferOwner = new TransferDisposable(true, CleanupStage.None);
+
+        NativeTransferTicket ticket;
+        using (NativeCallbackExecutionScope callbackScope = callbackOwner.EnterCallback())
+        {
+            ticket = transferOwner.CreateTransferTicket();
+        }
+
+        Assert.AreEqual(1, transferOwner.PreparationCalls);
+        Assert.AreEqual(NativeLifecycleState.Transferred, transferOwner.LifecycleState);
+        Assert.IsTrue(ticket.TryRollback());
+        callbackOwner.Dispose();
+    }
+
+    [TestMethod]
     public void TransferPreparationFailureLeavesWrapperActiveAndUsable()
     {
         var value = new TransferDisposable(true, CleanupStage.None)
@@ -603,9 +649,16 @@ public class NativeTransferTicketTests
 
         public Action PreparationAction { get; set; }
 
+        public int PreparationCalls { get; private set; }
+
         public int CleanupCalls { get; private set; }
 
         public bool ThrowFromCleanup { get; set; }
+
+        public NativeCallbackExecutionScope EnterCallback()
+        {
+            return EnterNativeCallbackExecution();
+        }
 
         protected override bool SupportsNativeTransfer => _supportsTransfer;
 
@@ -615,6 +668,7 @@ public class NativeTransferTicketTests
 
         protected override CleanupStageResult PrepareNativeTransfer()
         {
+            PreparationCalls++;
             PreparationAction?.Invoke();
             return PreparationResult;
         }

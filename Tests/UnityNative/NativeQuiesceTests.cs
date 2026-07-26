@@ -71,6 +71,102 @@ public class NativeQuiesceTests
     }
 
     [TestMethod]
+    public void QuiesceSuccessRejectsInHookPublicationInvalidationBeforeReceipt()
+    {
+        var value = new QuiesceDisposable();
+        value.QuiesceAction = _ => value.InvalidatePublication();
+
+        NativeCleanupException failure = Assert.ThrowsException<NativeCleanupException>(value.Dispose);
+
+        Assert.IsFalse(failure.IsRetryable);
+        Assert.AreEqual(CleanupStage.Managed, value.CompletedCleanupStages);
+        Assert.AreEqual(CleanupStage.NativeQuiesce, failure.FailedStages);
+        Assert.AreEqual(1, value.QuiesceCalls);
+        Assert.AreEqual(0, value.FenceCalls);
+        Assert.AreEqual(0, value.NativeCalls);
+        Assert.AreEqual(1, value.UnpublishCalls);
+        Assert.IsFalse(value.Tokens.Single().IsActive);
+    }
+
+    [TestMethod]
+    public void DestroyRejectsUnpublishedReceiptBeforeNativeCall()
+    {
+        var value = new QuiesceDisposable();
+        value.FenceAction = value.InvalidatePublication;
+
+        NativeCleanupException failure = Assert.ThrowsException<NativeCleanupException>(value.Dispose);
+
+        Assert.IsFalse(failure.IsRetryable);
+        Assert.AreEqual(
+            CleanupStage.Managed | CleanupStage.NativeQuiesce | CleanupStage.CallbackFence,
+            value.CompletedCleanupStages);
+        Assert.AreEqual(CleanupStage.Native, failure.FailedStages);
+        Assert.AreEqual(NativeResourceLiveness.KnownLive, value.NativeLiveness);
+        Assert.AreEqual(0, value.NativeCalls);
+        Assert.AreEqual(0, value.DestroyedPointers.Count);
+    }
+
+    [TestMethod]
+    public void DestroyRejectsSameAddressRepublishedGenerationBeforeNativeCall()
+    {
+        var value = new QuiesceDisposable();
+        value.FenceAction = () => value.ReplacePublicationForTest(new IntPtr(0x1234));
+
+        NativeCleanupException failure = Assert.ThrowsException<NativeCleanupException>(value.Dispose);
+
+        Assert.IsFalse(failure.IsRetryable);
+        Assert.AreEqual(CleanupStage.Native, failure.FailedStages);
+        Assert.AreEqual(NativeResourceLiveness.KnownLive, value.NativeLiveness);
+        Assert.AreEqual(0, value.NativeCalls);
+        Assert.AreEqual(0, value.DestroyedPointers.Count);
+    }
+
+    [TestMethod]
+    public void NativeRetryReusesReceiptOnlyForTheUnchangedPublication()
+    {
+        var value = new QuiesceDisposable();
+        value.NativeResults.Enqueue(
+            NativeCleanupResult.KnownLiveRetryableFailure(new StageException("native retry")));
+        value.NativeResults.Enqueue(NativeCleanupResult.Freed());
+
+        NativeCleanupException first = Assert.ThrowsException<NativeCleanupException>(value.Dispose);
+
+        Assert.IsTrue(first.IsRetryable);
+        Assert.AreEqual(
+            CleanupStage.Managed | CleanupStage.NativeQuiesce | CleanupStage.CallbackFence,
+            value.CompletedCleanupStages);
+        Assert.AreEqual(1, value.QuiesceCalls);
+        Assert.AreEqual(1, value.NativeCalls);
+
+        value.Dispose();
+
+        Assert.AreEqual(NativeLifecycleState.Disposed, value.LifecycleState);
+        Assert.AreEqual(1, value.QuiesceCalls);
+        Assert.AreEqual(2, value.NativeCalls);
+        CollectionAssert.AreEqual(
+            new[] { new IntPtr(0x1234), new IntPtr(0x1234) },
+            value.DestroyedPointers);
+    }
+
+    [TestMethod]
+    public void ActiveForeignQuiesceTokenFailsBeforeNativeCall()
+    {
+        var owner = new QuiesceDisposable();
+        var foreign = new QuiesceDisposable();
+        owner.QuiesceAction = token =>
+        {
+            Assert.IsTrue(token.IsActive);
+            Assert.ThrowsException<InvalidOperationException>(
+                () => foreign.ResolveForSimulatedNativeCall(token));
+        };
+
+        owner.Dispose();
+
+        Assert.AreEqual(0, foreign.StaleResolutionNativeCalls);
+        foreign.Dispose();
+    }
+
+    [TestMethod]
     public void RevokedTokenFailsBeforeAStaleNativeCallCanBegin()
     {
         var value = new QuiesceDisposable();
@@ -180,11 +276,19 @@ public class NativeQuiesceTests
 
         public Queue<CleanupStageResult> QuiesceResults { get; } = new();
 
+        public Queue<NativeCleanupResult> NativeResults { get; } = new();
+
         public List<string> Calls { get; } = new();
 
         public List<NativeQuiesceToken> Tokens { get; } = new();
 
         public List<IntPtr> ResolvedPointers { get; } = new();
+
+        public List<IntPtr> DestroyedPointers { get; } = new();
+
+        public Action<NativeQuiesceToken> QuiesceAction { get; set; }
+
+        public Action FenceAction { get; set; }
 
         public int ManagedCalls { get; private set; }
 
@@ -209,6 +313,29 @@ public class NativeQuiesceTests
             return nativePointer;
         }
 
+        public void InvalidatePublication()
+        {
+            UnpublishOwner();
+        }
+
+        public void ReplacePublicationForTest(IntPtr nativePointer)
+        {
+            Type type = typeof(DisposableNativeObject);
+            FieldInfo pointer = type.GetField("_nativePointer", BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo published = type.GetField("_pointerPublished", BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo generation = type.GetField(
+                "_pointerPublicationGeneration",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(pointer);
+            Assert.IsNotNull(published);
+            Assert.IsNotNull(generation);
+
+            long nextGeneration = checked((long)generation.GetValue(this) + 1);
+            pointer.SetValue(this, nativePointer);
+            published.SetValue(this, true);
+            generation.SetValue(this, nextGeneration);
+        }
+
         protected override CleanupStageResult CleanupManagedResources()
         {
             Calls.Add("managed");
@@ -225,6 +352,7 @@ public class NativeQuiesceTests
             Assert.AreEqual(NativeOperationOwnerId, token.OwnerId);
             Assert.AreEqual(LifecycleEpoch, token.LifecycleEpoch);
             ResolvedPointers.Add(GetNativePointer(token));
+            QuiesceAction?.Invoke(token);
             return QuiesceResults.Count == 0
                 ? CleanupStageResult.Succeeded()
                 : QuiesceResults.Dequeue();
@@ -234,6 +362,7 @@ public class NativeQuiesceTests
         {
             Calls.Add("fence");
             FenceCalls++;
+            FenceAction?.Invoke();
             return CleanupStageResult.Succeeded();
         }
 
@@ -241,8 +370,9 @@ public class NativeQuiesceTests
         {
             Calls.Add("native");
             NativeCalls++;
+            DestroyedPointers.Add(nativePointer);
             NativeObservedTokenInactive = Tokens.All(token => !token.IsActive);
-            return NativeCleanupResult.Freed();
+            return NativeResults.Count == 0 ? NativeCleanupResult.Freed() : NativeResults.Dequeue();
         }
 
         protected override CleanupStageResult UnpublishOwner()

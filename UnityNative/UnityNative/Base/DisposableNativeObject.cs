@@ -41,6 +41,23 @@ namespace Paraparty.UnityNative.Base
             Published = 1,
         }
 
+        private sealed class NativeQuiesceReceipt
+        {
+            internal readonly DisposableNativeObject Owner;
+            internal readonly long OwnerId;
+            internal readonly long PointerPublicationGeneration;
+
+            internal NativeQuiesceReceipt(
+                DisposableNativeObject owner,
+                long ownerId,
+                long pointerPublicationGeneration)
+            {
+                Owner = owner;
+                OwnerId = ownerId;
+                PointerPublicationGeneration = pointerPublicationGeneration;
+            }
+        }
+
         private static long _lastOwnerId;
 
         private readonly object _operationLock = new object();
@@ -57,6 +74,7 @@ namespace Paraparty.UnityNative.Base
         private long _pointerPublicationGeneration;
         private long _quiesceAttemptGeneration;
         private NativeQuiesceToken _activeQuiesceToken;
+        private NativeQuiesceReceipt _quiesceReceipt;
 
         /// <summary>Initializes an owned wrapper whose pointer will be published once after construction starts.</summary>
         protected DisposableNativeObject()
@@ -248,6 +266,8 @@ namespace Paraparty.UnityNative.Base
         /// <exception cref="ObjectDisposedException">Admission is closed or the wrapper is not active.</exception>
         public NativeTransferTicket CreateTransferTicket()
         {
+            ThrowIfCurrentExecutionIsNativeCallback();
+
             NativeOperationExecutionMarker preparationMarker;
             lock (_operationLock)
             {
@@ -331,6 +351,7 @@ namespace Paraparty.UnityNative.Base
                 }
 
                 RevokeActiveQuiesceTokenLocked();
+                _quiesceReceipt = null;
                 _nativePointer = IntPtr.Zero;
                 _pointerPublished = false;
                 ticket.PublishOwnership();
@@ -357,6 +378,7 @@ namespace Paraparty.UnityNative.Base
                 if (_activeLeaseEpochs.Count != 0)
                     throw new InvalidOperationException("A native pointer cannot be published while operations are active.");
 
+                _quiesceReceipt = null;
                 _pointerPublicationGeneration = NextMonotonicId(ref _pointerPublicationGeneration);
                 _nativePointer = nativePointer;
                 _pointerPublished = true;
@@ -370,6 +392,7 @@ namespace Paraparty.UnityNative.Base
             NativeQuiesceToken token;
             lock (_operationLock)
             {
+                _quiesceReceipt = null;
                 long attemptGeneration = NextMonotonicId(ref _quiesceAttemptGeneration);
                 token = new NativeQuiesceToken(
                     this,
@@ -382,7 +405,26 @@ namespace Paraparty.UnityNative.Base
 
             try
             {
-                return QuiesceNativeResource(token);
+                CleanupStageResult result = QuiesceNativeResource(token);
+                if (result == null || !result.IsSuccess)
+                    return result;
+
+                lock (_operationLock)
+                {
+                    if (!IsActiveQuiesceTokenLocked(token))
+                    {
+                        return CleanupStageResult.NonRetryableFailure(
+                            new InvalidOperationException(
+                                "Native quiescence completed after its pointer publication was invalidated."));
+                    }
+
+                    _quiesceReceipt = new NativeQuiesceReceipt(
+                        this,
+                        _operationOwnerId,
+                        token.PointerPublicationGeneration);
+                }
+
+                return result;
             }
             finally
             {
@@ -422,13 +464,7 @@ namespace Paraparty.UnityNative.Base
 
             lock (_operationLock)
             {
-                if (!token.IsActive ||
-                    !ReferenceEquals(token.Owner, this) ||
-                    token.OwnerId != _operationOwnerId ||
-                    token.LifecycleEpoch != LifecycleEpoch ||
-                    token.PointerPublicationGeneration != _pointerPublicationGeneration ||
-                    !ReferenceEquals(_activeQuiesceToken, token) ||
-                    !_pointerPublished)
+                if (!IsActiveQuiesceTokenLocked(token))
                 {
                     throw new InvalidOperationException(
                         "The native-quiesce token is stale, revoked, or no longer matches a published pointer.");
@@ -446,6 +482,18 @@ namespace Paraparty.UnityNative.Base
             lock (_operationLock)
             {
                 RevokeActiveQuiesceTokenLocked();
+                NativeQuiesceReceipt receipt = _quiesceReceipt;
+                if (receipt == null ||
+                    !ReferenceEquals(receipt.Owner, this) ||
+                    receipt.OwnerId != _operationOwnerId ||
+                    !_pointerPublished ||
+                    receipt.PointerPublicationGeneration != _pointerPublicationGeneration)
+                {
+                    return NativeCleanupResult.KnownLiveNonRetryableFailure(
+                        new InvalidOperationException(
+                            "Native cleanup requires the exact pointer publication proven quiescent."));
+                }
+
                 nativePointer = _nativePointer;
             }
 
@@ -470,6 +518,7 @@ namespace Paraparty.UnityNative.Base
             lock (_operationLock)
             {
                 RevokeActiveQuiesceTokenLocked();
+                _quiesceReceipt = null;
                 _nativePointer = IntPtr.Zero;
                 _pointerPublished = false;
             }
@@ -592,6 +641,19 @@ namespace Paraparty.UnityNative.Base
 
             _activeQuiesceToken.Revoke();
             _activeQuiesceToken = null;
+        }
+
+        private bool IsActiveQuiesceTokenLocked(NativeQuiesceToken token)
+        {
+            return token != null &&
+                   token.IsActive &&
+                   ReferenceEquals(token.Owner, this) &&
+                   token.OwnerId == _operationOwnerId &&
+                   token.LifecycleEpoch == LifecycleEpoch &&
+                   token.PointerPublicationGeneration == _pointerPublicationGeneration &&
+                   token.QuiesceAttemptGeneration == _quiesceAttemptGeneration &&
+                   ReferenceEquals(_activeQuiesceToken, token) &&
+                   _pointerPublished;
         }
 
         private static long NextMonotonicId(ref long counter)

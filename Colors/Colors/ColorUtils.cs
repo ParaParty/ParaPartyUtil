@@ -3,11 +3,39 @@ using System.Drawing;
 #else
 using UnityEngine;
 #endif
+using System;
+using System.Collections.Generic;
 
 namespace Paraparty.Colors
 {
     public static class ColorUtils
     {
+        private static readonly IReadOnlyDictionary<string, uint> NamedColors =
+            new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["transparent"] = 0x00000000,
+                ["black"] = 0x000000FF,
+                ["silver"] = 0xC0C0C0FF,
+                ["gray"] = 0x808080FF,
+                ["grey"] = 0x808080FF,
+                ["white"] = 0xFFFFFFFF,
+                ["maroon"] = 0x800000FF,
+                ["red"] = 0xFF0000FF,
+                ["purple"] = 0x800080FF,
+                ["fuchsia"] = 0xFF00FFFF,
+                ["magenta"] = 0xFF00FFFF,
+                ["green"] = 0x008000FF,
+                ["lime"] = 0x00FF00FF,
+                ["olive"] = 0x808000FF,
+                ["yellow"] = 0xFFFF00FF,
+                ["navy"] = 0x000080FF,
+                ["blue"] = 0x0000FFFF,
+                ["teal"] = 0x008080FF,
+                ["aqua"] = 0x00FFFFFF,
+                ["cyan"] = 0x00FFFFFF,
+                ["orange"] = 0xFFA500FF,
+            };
+
         public static string SerializeColor(Color color)
         {
             var oklch = Oklch.FromColor(color);
@@ -17,15 +45,28 @@ namespace Paraparty.Colors
 
         public static Color ParseColor(string src)
         {
-            src = src.Trim();
+            return TryParseColor(src, out var color) ? color : Constance.White;
+        }
+
+        public static bool TryParseColor(string src, out Color color)
+        {
+            color = Constance.White;
             if (string.IsNullOrWhiteSpace(src))
             {
-                return Constance.White;
+                return false;
+            }
+
+            src = src.Trim();
+            if (NamedColors.TryGetValue(src, out var namedColor))
+            {
+                color = ParseUintColor(namedColor);
+                return true;
             }
 
             if (uint.TryParse(src, out var uintColor))
             {
-                return ParseUintColor(uintColor);
+                color = ParseUintColor(uintColor);
+                return true;
             }
 
             if (src.StartsWith("#"))
@@ -34,31 +75,49 @@ namespace Paraparty.Colors
                 if (src.Length == 3 &&
                     Tools.TryParseHexToUint($"{src[0]}{src[0]}{src[1]}{src[1]}{src[2]}{src[2]}FF", out uintColor))
                 {
-                    return ParseUintColor(uintColor);
+                    color = ParseUintColor(uintColor);
+                    return true;
+                }
+
+                if (src.Length == 4 &&
+                    Tools.TryParseHexToUint(
+                        $"{src[0]}{src[0]}{src[1]}{src[1]}{src[2]}{src[2]}{src[3]}{src[3]}",
+                        out uintColor))
+                {
+                    color = ParseUintColor(uintColor);
+                    return true;
                 }
 
                 if (src.Length == 6 && Tools.TryParseHexToUint($"{src}FF", out uintColor))
                 {
-                    return ParseUintColor(uintColor);
+                    color = ParseUintColor(uintColor);
+                    return true;
                 }
 
                 if (src.Length == 8 && Tools.TryParseHexToUint($"{src}", out uintColor))
                 {
-                    return ParseUintColor(uintColor);
+                    color = ParseUintColor(uintColor);
+                    return true;
                 }
+
+                return false;
             }
 
-            if (src.StartsWith("oklab(") && src.EndsWith(")"))
+            if (src.StartsWith("oklab(", StringComparison.OrdinalIgnoreCase) &&
+                src.EndsWith(")", StringComparison.Ordinal))
             {
-                return Oklab.ParseOklch(src).ToColor();
+                color = Oklab.ParseOklch(src).ToColor();
+                return true;
             }
 
-            if (src.StartsWith("oklch(") && src.EndsWith(")"))
+            if (src.StartsWith("oklch(", StringComparison.OrdinalIgnoreCase) &&
+                src.EndsWith(")", StringComparison.Ordinal))
             {
-                return Oklch.ParseOklch(src).ToColor();
+                color = Oklch.ParseOklch(src).ToColor();
+                return true;
             }
 
-            return Constance.White;
+            return false;
         }
 
         private static Color ParseUintColor(uint src)
